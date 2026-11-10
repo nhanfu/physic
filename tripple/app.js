@@ -1,8 +1,6 @@
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 const energyEl = document.getElementById("energy");
-const frictionEl = document.getElementById("friction");
-const frictionValEl = document.getElementById("friction-val");
 const linksValEl = document.getElementById("links-val");
 const lessBtn = document.getElementById("less");
 const moreBtn = document.getElementById("more");
@@ -14,59 +12,66 @@ const clearPinsBtn = document.getElementById("clearpins");
 const netNEl = document.getElementById("net-n");
 const netEEl = document.getElementById("net-e");
 const netPEl = document.getElementById("net-p");
-const settleBtn = document.getElementById("settle");
 const relaxBtn = document.getElementById("relax");
 const arrangeBtn = document.getElementById("arrange");
 const pathInfoEl = document.getElementById("path-info");
 
 const G = 9.81;
-// Bước thời gian của Verlet + SHAKE: ổn định trên lưới 20–50 node trong 30 s (đã kiểm tra).
-const DT = 0.001;
-const DRAG_K = 100; // độ cứng lò xo khi kéo node
-const DRAG_FRICTION = 20; // ma sát tối thiểu khi đang kéo (≈ 2√DRAG_K: tắt dao động của lò xo)
-const TRAIL_MAX = 500;
 const PICK_RADIUS = 28;
 const MAX_NET_NODES = 200;
 
 // Mô hình: mỗi node là một quả nặng (khối lượng 1) với vị trí (X, Y) tính bằng mét,
-// trục y hướng xuống. Các rod là ràng buộc khoảng cách cứng: |p_a - p_b| = L.
+// trục y hướng xuống. Các rod là ràng buộc khoảng cách: |p_a - p_b| = L (sợi chỉ chỉ chống kéo).
 // EDGES[k] = {a, b, L}; chỉ số -1 là điểm treo cố định tại (0, 0).
-// Node ghim (PIN) đứng yên tại (PX, PY).
+// Node ghim (PIN) đứng yên tại (PX, PY). Không có động lực học: hệ luôn được đưa về
+// trạng thái cân bằng tĩnh (cực tiểu thế năng trọng lực) bằng vòng cân bằng.
 let N = 0;
-let X = [], Y = [], VX = [], VY = [];
-let HX = [], HY = []; // vị trí ban đầu, dùng cho R
+let X = [], Y = [];
+let HX = [], HY = []; // vị trí ban đầu (lưới), dùng cho reset
 let PIN = [], PX = [], PY = [];
 let EDGES = [];
-let paused = false;
-let frictionBase = 0; // ma sát nhớt: gia tốc = -friction · v
-let dragging = -1;
-let dragX = 0, dragY = 0;
 let linkMode = false;
 let pinMode = false;
 let linkSrc = -1;
 let message = "";
-let trail = [];
 let view = { pivotX: 0, pivotY: 0, ppm: 100, w: 0, h: 0 };
 
+// Tọa độ phần tử i của mảng; chỉ số -1 (điểm treo) luôn ở gốc (0, 0).
+const coord = (arr, i) => (i < 0 ? 0 : arr[i]);
+
+// Độ dài thực của rod e trong cấu hình (xs, ys).
+function edgeLength(e, xs, ys) {
+  return Math.hypot(coord(xs, e.b) - coord(xs, e.a), coord(ys, e.b) - coord(ys, e.a));
+}
+
+// Chỉ số các node đang ghim, theo thứ tự tăng dần.
+function pinnedIndices() {
+  const out = [];
+  for (let i = 0; i < N; i++) if (PIN[i]) out.push(i);
+  return out;
+}
+
 function setStructure(home, edges, pinned) {
-  relaxing = true;
-  relaxSweepsDone = 0;
-  relaxStep = RELAX_STEP;
   N = home.length;
   HX = home.map((p) => p.x);
   HY = home.map((p) => p.y);
   X = HX.slice();
   Y = HY.slice();
-  VX = new Array(N).fill(0);
-  VY = new Array(N).fill(0);
   PIN = pinned.slice();
   PX = HX.slice();
   PY = HY.slice();
   EDGES = edges.map((e) => ({ a: e.a, b: e.b, L: e.L }));
-  dragging = -1;
   linkSrc = -1;
-  trail = [];
   updateScale();
+  startRelax("đang cân bằng...");
+}
+
+// Bắt đầu (hoặc chạy lại) vòng cân bằng. msg = null thì giữ nguyên thông báo hiện tại.
+function startRelax(msg) {
+  relaxing = true;
+  relaxSweepsDone = 0;
+  relaxStep = RELAX_STEP;
+  if (msg !== null && msg !== undefined) message = msg;
   updateLinkControls();
 }
 
@@ -152,31 +157,33 @@ function netStructure(nNodes, nEdges, nPins) {
   return { nodes: nNodes, edges: nEdges, maxEdges: cand.length, pins: pinCount };
 }
 
-// ---- Vật lý ----
+// ---- Cân bằng tĩnh (ràng buộc sợi chỉ + trọng lực) ----
+// Tìm cấu hình có thế năng trọng lực nhỏ nhất thỏa các sợi. Không dùng vận tốc, quán tính
+// hay ma sát: mỗi vòng hạ các node tự do theo trọng lực (gradient của U = −G·Σy),
+// rồi chiếu các sợi đang căng về đúng chiều dài (SHAKE với nhân tử Lagrange).
+// Sợi chỉ chỉ chống kéo: sợi chùng không tác dụng lực. Dừng khi cấu hình không còn thay đổi.
 
-function fixedPos(i) {
-  return { x: PX[i], y: PY[i] };
-}
-
-// Node ghim đứng yên; node đang kéo (kể cả node ghim) được điều khiển bằng lò xo.
-function isFixed(i) {
-  return PIN[i] && i !== dragging;
-}
-
-// Cơ học Lagrange với ràng buộc rod. Mỗi node tự do có khối lượng 1 và ràng buộc
-//   C_k = ½(|p_b − p_a|² − L_k²) = 0,   nhân tử Lagrange λ_k.
-// Tích phân bằng Verlet vận tốc (đối xứng, giữ năng lượng tốt). Ở mỗi bước, nhân tử
-// được giải chính xác từ (J Jᵀ) μ = −C theo kiểu SHAKE để vị trí thỏa ràng buộc, sau đó
-// vận tốc được chiếu lên không gian tiếp tuyến (RATTLE): J v = 0.
-const SHAKE_ITER = 8;
 const REG = 1e-7; // chính quy hóa tương đối cho hệ nhân tử
+const SHAKE_ITER = 8;
+const STRING_TOL = 1e-9; // dung sai: sợi căng trong sai số làm tròn không bị hiệu chỉnh
+const RELAX_STEP = 0.0005; // bước hạ ban đầu theo trọng lực (m mỗi vòng)
+const RELAX_STEP_MIN = 1e-6;
+const RELAX_STEP_MAX = 0.005;
+const RELAX_PROJ = 200; // số vòng SHAKE mỗi bước cân bằng
+const RELAX_TOL = 1e-9; // ngưỡng: cấu hình không đổi (m) mỗi vòng
+const RELAX_STRETCH = 1e-8; // ngưỡng: độ giãn sợi còn lại (m)
+const RELAX_SWEEPS_PER_FRAME = 20;
+const RELAX_MAX_SWEEPS = 6000; // dừng sau số vòng này nếu chưa hội tụ
+let relaxing = true;
+let relaxSweepsDone = 0;
+let relaxStep = RELAX_STEP;
 
 // Các ràng buộc có ít nhất một đầu tự do (ràng buộc giữa hai node cố định là hằng số).
 function activeEdges() {
   const out = [];
   for (let k = 0; k < EDGES.length; k++) {
     const e = EDGES[k];
-    if ((e.b >= 0 && !isFixed(e.b)) || (e.a >= 0 && !isFixed(e.a))) out.push(k);
+    if ((e.b >= 0 && !PIN[e.b]) || (e.a >= 0 && !PIN[e.a])) out.push(k);
   }
   return out;
 }
@@ -186,8 +193,8 @@ function edgeVectors(xs, ys, active) {
   const dx = new Array(active.length), dy = new Array(active.length);
   active.forEach((k, p) => {
     const e = EDGES[k];
-    dx[p] = (e.b < 0 ? 0 : xs[e.b]) - (e.a < 0 ? 0 : xs[e.a]);
-    dy[p] = (e.b < 0 ? 0 : ys[e.b]) - (e.a < 0 ? 0 : ys[e.a]);
+    dx[p] = coord(xs, e.b) - coord(xs, e.a);
+    dy[p] = coord(ys, e.b) - coord(ys, e.a);
   });
   return { dx, dy };
 }
@@ -201,8 +208,8 @@ function multipliers(active, dx, dy, rhs) {
   for (let p = 0; p < M; p++) {
     const e = EDGES[active[p]];
     const ns = [], ss = [];
-    if (e.b >= 0 && !isFixed(e.b)) { ns.push(e.b); ss.push(1); }
-    if (e.a >= 0 && !isFixed(e.a)) { ns.push(e.a); ss.push(-1); }
+    if (e.b >= 0 && !PIN[e.b]) { ns.push(e.b); ss.push(1); }
+    if (e.a >= 0 && !PIN[e.a]) { ns.push(e.a); ss.push(-1); }
     eN[p] = ns;
     eS[p] = ss;
   }
@@ -269,11 +276,6 @@ function multipliers(active, dx, dy, rhs) {
   return Array.from(x);
 }
 
-// Sợi chỉ: chỉ chống kéo giãn, không chống nén. Ràng buộc C_k = ½(|d|² − L²) ≤ 0 là
-// bất đẳng thức; chỉ các sợi đang căng (C > 0) mới được kéo về đúng chiều dài. Sợi chùng
-// không tác dụng lực. Nhân tử μ ≤ 0 tương ứng với lực kéo vào trong (lực căng hợp lệ).
-const STRING_TOL = 1e-9; // dung sai: sợi căng trong sai số làm tròn không bị hiệu chỉnh
-
 // SHAKE cho các sợi căng: Δp = Jᵀμ, (J Jᵀ)μ = −C, bỏ qua sợi nào cần đẩy (μ > 0).
 function shake(xs, ys, active, iters = SHAKE_ITER) {
   for (let it = 0; it < iters; it++) {
@@ -293,11 +295,11 @@ function shake(xs, ys, active, iters = SHAKE_ITER) {
     sel.forEach((p, q) => {
       if (mu[q] > 0) return;
       const e = EDGES[active[p]];
-      if (e.b >= 0 && !isFixed(e.b)) {
+      if (e.b >= 0 && !PIN[e.b]) {
         xs[e.b] += mu[q] * dx[p];
         ys[e.b] += mu[q] * dy[p];
       }
-      if (e.a >= 0 && !isFixed(e.a)) {
+      if (e.a >= 0 && !PIN[e.a]) {
         xs[e.a] -= mu[q] * dx[p];
         ys[e.a] -= mu[q] * dy[p];
       }
@@ -305,117 +307,43 @@ function shake(xs, ys, active, iters = SHAKE_ITER) {
   }
 }
 
-// RATTLE cho sợi căng: sợi đang căng mà đầu hai nút đang tách ra thì chiếu vận tốc
-// (J v = 0) bằng lực kéo vào; sợi chùng thì không chiếu.
-function projectVelocities(active) {
-  const { dx, dy } = edgeVectors(X, Y, active);
-  const dvn = active.map((k, p) => {
-    const e = EDGES[k];
-    const dvx = (e.b < 0 ? 0 : VX[e.b]) - (e.a < 0 ? 0 : VX[e.a]);
-    const dvy = (e.b < 0 ? 0 : VY[e.b]) - (e.a < 0 ? 0 : VY[e.a]);
-    return dx[p] * dvx + dy[p] * dvy;
-  });
-  let sel = [];
-  for (let p = 0; p < active.length; p++) {
-    const e = EDGES[active[p]];
-    const C = 0.5 * (dx[p] * dx[p] + dy[p] * dy[p] - e.L * e.L);
-    if (C >= -1e-9 && dvn[p] > 0) sel.push(p);
-  }
-  for (let round = 0; round < 4 && sel.length > 0; round++) {
-    const nu = multipliers(
-      sel.map((p) => active[p]),
-      sel.map((p) => dx[p]),
-      sel.map((p) => dy[p]),
-      sel.map((p) => -dvn[p])
-    );
-    const keep = sel.filter((p, q) => nu[q] <= 0);
-    if (keep.length === sel.length) {
-      sel.forEach((p, q) => {
-        const e = EDGES[active[p]];
-        if (e.b >= 0 && !isFixed(e.b)) {
-          VX[e.b] += nu[q] * dx[p];
-          VY[e.b] += nu[q] * dy[p];
-        }
-        if (e.a >= 0 && !isFixed(e.a)) {
-          VX[e.a] -= nu[q] * dx[p];
-          VY[e.a] -= nu[q] * dy[p];
-        }
-      });
-      break;
-    }
-    sel = keep;
-  }
+// Thế năng trọng lực hiện tại: U = −G·Σy (y hướng xuống, U nhỏ hơn = thấp hơn).
+function potentialU() {
+  let u = 0;
+  for (let i = 0; i < N; i++) u -= G * Y[i];
+  return u;
 }
 
-// Một bước Verlet vận tốc với ràng buộc. Ma sát: gia tốc −friction·v.
-function substep(dt) {
-  const h = dt;
-  // khi đang kéo, ma sát tối thiểu DRAG_FRICTION để lưới ổn định nhanh (rod vẫn cứng)
-  const friction = dragging >= 0 ? Math.max(frictionBase, DRAG_FRICTION) : frictionBase;
-  const active = activeEdges();
-  const xs = new Array(N), ys = new Array(N);
-  const fx = new Array(N).fill(0), fy = new Array(N).fill(0);
+// Một vòng cân bằng: hạ node tự do theo trọng lực, rồi chiếu các sợi căng về đúng chiều dài.
+// Bước hạ thích nghi: nếu U không giảm thì bỏ bước và chia đôi bước; nếu giảm thì tăng bước nhẹ.
+// Trả về {change, worst}: độ thay đổi lớn nhất của node và độ giãn sợi còn lại.
+function relaxSweep() {
+  const x0 = X.slice(), y0 = Y.slice();
+  const U0 = potentialU();
+  const xs = X.slice(), ys = Y.slice();
   for (let i = 0; i < N; i++) {
-    if (isFixed(i)) {
-      const f = fixedPos(i);
-      xs[i] = f.x;
-      ys[i] = f.y;
-      continue;
-    }
-    // lực lò xo kéo node đang kéo về con trỏ
-    const kx = i === dragging ? DRAG_K * (dragX - X[i]) : 0;
-    const ky = i === dragging ? DRAG_K * (dragY - Y[i]) : 0;
-    // nửa bước vận tốc, rồi dự đoán vị trí
-    const vhx = VX[i] + (h / 2) * (-friction * VX[i] + kx);
-    const vhy = VY[i] + (h / 2) * (G - friction * VY[i] + ky);
-    xs[i] = X[i] + h * vhx;
-    ys[i] = Y[i] + h * vhy;
-    fx[i] = kx;
-    fy[i] = ky;
+    if (!PIN[i]) ys[i] += relaxStep * G;
   }
-  shake(xs, ys, active);
-  // nửa bước vận tốc còn lại (ẩn theo ma sát): v = (u + (h/2)(G + f)) / (1 + c h/2)
-  const damp = 1 + (friction * h) / 2;
-  for (let i = 0; i < N; i++) {
-    if (isFixed(i)) {
-      VX[i] = 0;
-      VY[i] = 0;
-      continue;
-    }
-    const ux = (xs[i] - X[i]) / h;
-    const uy = (ys[i] - Y[i]) / h;
-    VX[i] = (ux + (h / 2) * fx[i]) / damp;
-    VY[i] = (uy + (h / 2) * (G + fy[i])) / damp;
-  }
+  shake(xs, ys, activeEdges(), RELAX_PROJ);
   X = xs;
   Y = ys;
-  projectVelocities(active);
-  for (let i = 0; i < N; i++) {
-    if (isFixed(i)) {
-      VX[i] = 0;
-      VY[i] = 0;
-    }
+  if (potentialU() > U0 + 1e-12 && relaxStep > RELAX_STEP_MIN) {
+    // bước làm năng lượng tăng: quay lại và thử bước nhỏ hơn
+    X = x0;
+    Y = y0;
+    relaxStep = Math.max(RELAX_STEP_MIN, relaxStep / 2);
+    return { change: 1, worst: 1 };
   }
-}
-
-function energy() {
-  let e = 0;
+  relaxStep = Math.min(RELAX_STEP_MAX, relaxStep * 1.05);
+  let change = 0;
   for (let i = 0; i < N; i++) {
-    e += 0.5 * (VX[i] * VX[i] + VY[i] * VY[i]) - G * Y[i];
+    change = Math.max(change, Math.abs(X[i] - x0[i]), Math.abs(Y[i] - y0[i]));
   }
-  return e;
-}
-
-function reset() {
-  for (let i = 0; i < N; i++) {
-    X[i] = HX[i];
-    Y[i] = HY[i];
-    VX[i] = 0;
-    VY[i] = 0;
-    PX[i] = HX[i];
-    PY[i] = HY[i];
+  let worst = 0;
+  for (const e of EDGES) {
+    worst = Math.max(worst, edgeLength(e, X, Y) - e.L);
   }
-  trail = [];
+  return { change, worst };
 }
 
 // ---- Hình vẽ ----
@@ -451,28 +379,14 @@ function sy(y) { return view.pivotY + view.ppm * y; }
 function wx(px) { return (px - view.pivotX) / view.ppm; }
 function wy(py) { return (py - view.pivotY) / view.ppm; }
 
-function drawTrail() {
-  if (trail.length < 2) return;
-  ctx.lineCap = "round";
-  for (let i = 1; i < trail.length; i++) {
-    const a = i / trail.length;
-    ctx.strokeStyle = `rgba(90, 200, 255, ${a * 0.55})`;
-    ctx.lineWidth = 0.5 + a * 2;
-    ctx.beginPath();
-    ctx.moveTo(trail[i - 1].x, trail[i - 1].y);
-    ctx.lineTo(trail[i].x, trail[i].y);
-    ctx.stroke();
-  }
-}
-
 const BOB_COLORS = [
   ["#eaf2ff", "#7f8ea3"],
   ["#9fe8ff", "#2b7fa8"],
   ["#ffd79f", "#c07a2b"],
 ];
 
-// Đường rod ngắn nhất (ít rod nhất) giữa hai node liền kề trong danh sách,
-// tìm bằng BFS trên đồ thị rod. Trả về mảng chỉ số cạnh hoặc null nếu không nối được.
+// Đường rod ngắn nhất (ít rod nhất) giữa hai node trong đồ thị rod, tìm bằng BFS.
+// Trả về mảng chỉ số cạnh hoặc null nếu không nối được.
 function bfsEdgePath(s, t, adj) {
   const prevN = new Array(N).fill(-1), prevE = new Array(N).fill(-1);
   const seen = new Array(N).fill(false);
@@ -496,20 +410,15 @@ function bfsEdgePath(s, t, adj) {
   return out;
 }
 
-// Đường nối các điểm ghim theo thứ tự chỉ số, chỉ đi qua các sợi căng (đang chịu lực kéo)
-// ở cấu hình hiện tại. Đây là đường do trọng lực tạo ra. Mỗi đoạn là đường ít sợi nhất
-// trong các sợi căng (BFS).
+// Đường nối các điểm ghim theo thứ tự chỉ số, chỉ đi qua các sợi căng ở cấu hình cân bằng.
+// Đây là đường do trọng lực tạo ra. Mỗi đoạn là đường ít sợi nhất trong các sợi căng (BFS).
 function shortestPinPath() {
-  const pins = [];
-  for (let i = 0; i < N; i++) if (PIN[i]) pins.push(i);
+  const pins = pinnedIndices();
   if (pins.length < 2) return { edges: new Set(), msg: "cần ít nhất 2 điểm ghim" };
   const adj = Array.from({ length: N }, () => []);
   EDGES.forEach((e, k) => {
-    if (e.a < 0 && e.b < 0) return;
-    const ax = e.a < 0 ? 0 : X[e.a], ay = e.a < 0 ? 0 : Y[e.a];
-    const bx = e.b < 0 ? 0 : X[e.b], by = e.b < 0 ? 0 : Y[e.b];
-    const taut = Math.hypot(bx - ax, by - ay) >= e.L - 1e-6;
-    if (!taut || e.a < 0 || e.b < 0) return;
+    // chỉ rod nối hai node thật (không tính điểm treo) và đang căng
+    if (e.a < 0 || e.b < 0 || edgeLength(e, X, Y) < e.L - 1e-6) return;
     adj[e.a].push([e.b, k]);
     adj[e.b].push([e.a, k]);
   });
@@ -538,8 +447,7 @@ function shortestPinPath() {
 // dần qua nhiều bước, mỗi bước SHAKE lại để các node còn lại giữ đúng chiều dài rod.
 // Nếu không khả thi thì khôi phục trạng thái cũ.
 function arrangePins() {
-  const pins = [];
-  for (let i = 0; i < N; i++) if (PIN[i]) pins.push(i);
+  const pins = pinnedIndices();
   const k = pins.length;
   if (k === 0) {
     message = "chưa có điểm ghim để xếp";
@@ -566,18 +474,13 @@ function arrangePins() {
     }
     let viol = 0;
     for (const e of EDGES) {
-      const ax = e.a < 0 ? 0 : xs[e.a], ay = e.a < 0 ? 0 : ys[e.a];
-      const bx = e.b < 0 ? 0 : xs[e.b], by = e.b < 0 ? 0 : ys[e.b];
-      viol = Math.max(viol, Math.hypot(bx - ax, by - ay) - e.L); // sợi chỉ chỉ cấm kéo quá dài
+      viol = Math.max(viol, edgeLength(e, xs, ys) - e.L); // sợi chỉ chỉ cấm kéo quá dài
     }
     if (viol < 1e-7) {
       X = xs;
       Y = ys;
-      VX.fill(0);
-      VY.fill(0);
-      trail = [];
-      message = `đã xếp ${k} điểm ghim thành hàng, cách nhau ${spacing.toFixed(3)} m`;
-      updateLinkControls();
+      // các node tự do chưa ở cân bằng sau khi ghim đã dời: hạ lại theo trọng lực
+      startRelax(`đã xếp ${k} điểm ghim thành hàng, cách nhau ${spacing.toFixed(3)} m`);
       return;
     }
   }
@@ -589,21 +492,18 @@ function arrangePins() {
 
 function draw() {
   ctx.clearRect(0, 0, view.w, view.h);
-  drawTrail();
 
   // rod
   ctx.strokeStyle = "#cfd8e3";
   ctx.lineWidth = 2.5;
   ctx.lineCap = "round";
   const path = shortestPinPath();
-  const onPath = path.edges || new Set();
+  const onPath = path.edges;
   pathInfoEl.textContent = path.msg;
   EDGES.forEach((e, k) => {
-    const ax = e.a < 0 ? 0 : X[e.a], ay = e.a < 0 ? 0 : Y[e.a];
-    const bx = e.b < 0 ? 0 : X[e.b], by = e.b < 0 ? 0 : Y[e.b];
     ctx.beginPath();
-    ctx.moveTo(sx(ax), sy(ay));
-    ctx.lineTo(sx(bx), sy(by));
+    ctx.moveTo(sx(coord(X, e.a)), sy(coord(Y, e.a)));
+    ctx.lineTo(sx(coord(X, e.b)), sy(coord(Y, e.b)));
     if (onPath.has(k)) {
       ctx.strokeStyle = "#ffd79f";
       ctx.lineWidth = 5;
@@ -652,96 +552,18 @@ function draw() {
   ctx.arc(view.pivotX, view.pivotY, 4, 0, Math.PI * 2);
   ctx.fill();
 
-  energyEl.textContent = `E = ${energy().toFixed(3)} J   ·   ${
-    paused ? "paused" : "running"
+  energyEl.textContent = `U = ${potentialU().toFixed(3)} J   ·   ${
+    relaxing ? "đang cân bằng" : "cân bằng"
   }`;
-}
-
-// ---- Cân bằng tĩnh ----
-// Tìm cấu hình có thế năng trọng lực nhỏ nhất thỏa các sợi. Không dùng vận tốc, quán tính
-// hay ma sát: mỗi vòng hạ các node tự do theo trọng lực (gradient của U = −G·Σy),
-// rồi chiếu các sợi đang căng về đúng chiều dài. Dừng khi cấu hình không còn thay đổi.
-const RELAX_STEP = 0.0005; // bước hạ ban đầu theo trọng lực (m mỗi vòng)
-const RELAX_STEP_MIN = 1e-6;
-const RELAX_STEP_MAX = 0.005;
-const RELAX_PROJ = 200; // số vòng SHAKE mỗi bước cân bằng
-const RELAX_TOL = 1e-9; // ngưỡng: cấu hình không đổi (m) mỗi vòng
-const RELAX_STRETCH = 1e-8; // ngưỡng: độ giãn sợi còn lại (m)
-const RELAX_SWEEPS_PER_FRAME = 20;
-const RELAX_MAX_SWEEPS = 6000; // dừng sau số vòng này nếu chưa hội tụ
-let relaxing = true; // cân bằng là chế độ mặc định
-let relaxSweepsDone = 0;
-
-// Thế năng trọng lực hiện tại: U = −G·Σy (y hướng xuống, U nhỏ hơn = thấp hơn).
-function potentialU() {
-  let u = 0;
-  for (let i = 0; i < N; i++) u -= G * Y[i];
-  return u;
-}
-
-// Một vòng cân bằng: hạ node tự do theo trọng lực, rồi chiếu các sợi căng về đúng chiều dài.
-// Bước hạ thích nghi: nếu U không giảm thì bỏ bước và chia đôi bước; nếu giảm thì tăng bước nhẹ.
-// Trả về {change, worst}: độ thay đổi lớn nhất của node và độ giãn sợi còn lại.
-let relaxStep = RELAX_STEP;
-function relaxSweep() {
-  const x0 = X.slice(), y0 = Y.slice();
-  const U0 = potentialU();
-  const xs = X.slice(), ys = Y.slice();
-  for (let i = 0; i < N; i++) {
-    if (!isFixed(i)) ys[i] += relaxStep * G;
-  }
-  shake(xs, ys, activeEdges(), RELAX_PROJ);
-  X = xs;
-  Y = ys;
-  if (potentialU() > U0 + 1e-12 && relaxStep > RELAX_STEP_MIN) {
-    // bước làm năng lượng tăng: quay lại và thử bước nhỏ hơn
-    X = x0;
-    Y = y0;
-    relaxStep = Math.max(RELAX_STEP_MIN, relaxStep / 2);
-    for (let i = 0; i < N; i++) { VX[i] = 0; VY[i] = 0; }
-    return { change: 1, worst: 1 };
-  }
-  relaxStep = Math.min(RELAX_STEP_MAX, relaxStep * 1.05);
-  let change = 0;
-  for (let i = 0; i < N; i++) {
-    change = Math.max(change, Math.abs(X[i] - x0[i]), Math.abs(Y[i] - y0[i]));
-    VX[i] = 0;
-    VY[i] = 0;
-  }
-  let worst = 0;
-  for (const e of EDGES) {
-    const ax = e.a < 0 ? 0 : X[e.a], ay = e.a < 0 ? 0 : Y[e.a];
-    const bx = e.b < 0 ? 0 : X[e.b], by = e.b < 0 ? 0 : Y[e.b];
-    worst = Math.max(worst, Math.hypot(bx - ax, by - ay) - e.L);
-  }
-  return { change, worst };
-}
-
-// Chạy vòng cân bằng cho tới khi cấu hình không đổi và các sợi đều đúng, hoặc đạt maxSweeps.
-function relaxToEquilibrium(maxSweeps = 200000) {
-  let k = 0;
-  for (; k < maxSweeps; k++) {
-    const r = relaxSweep();
-    if (r.change < RELAX_TOL && r.worst < RELAX_STRETCH) break;
-  }
-  return k;
 }
 
 // ---- Vòng lặp chính ----
 
-let last = performance.now();
-let acc = 0;
-
-function frame(now) {
-  let dtReal = (now - last) / 1000;
-  last = now;
-  if (dtReal > 0.05) dtReal = 0.05;
-
+function frame() {
   if (relaxing) {
     let r = { change: 1, worst: 1 };
     for (let s = 0; s < RELAX_SWEEPS_PER_FRAME; s++) r = relaxSweep();
     relaxSweepsDone += RELAX_SWEEPS_PER_FRAME;
-    acc = 0;
     if (r.change < RELAX_TOL && r.worst < RELAX_STRETCH) {
       relaxing = false;
       message = "đã cân bằng";
@@ -751,27 +573,7 @@ function frame(now) {
       message = "dừng cân bằng (chưa hội tụ); bấm Cân bằng để tiếp tục";
       updateLinkControls();
     }
-  } else if (!paused) {
-    acc += dtReal;
-    let steps = 0;
-    while (acc >= DT && steps < 3000) {
-      substep(DT);
-      acc -= DT;
-      steps++;
-    }
-  } else {
-    acc = 0;
   }
-
-  if (N > 0) {
-    const tipX = sx(X[N - 1]), tipY = sy(Y[N - 1]);
-    const tail = trail[trail.length - 1];
-    if (!tail || Math.hypot(tail.x - tipX, tail.y - tipY) > 0.6) {
-      trail.push({ x: tipX, y: tipY });
-      if (trail.length > TRAIL_MAX) trail.shift();
-    }
-  }
-
   draw();
   requestAnimationFrame(frame);
 }
@@ -779,30 +581,28 @@ function frame(now) {
 // ---- Số node: thêm/bớt ở cuối ----
 
 function addNode() {
-  const last = N - 1;
-  const hx = last >= 0 ? HX[last] : 0;
-  const hy = last >= 0 ? HY[last] + 1 : 1;
+  const prev = N - 1;
+  const hx = prev >= 0 ? HX[prev] : 0;
+  const hy = prev >= 0 ? HY[prev] + 1 : 1;
   HX.push(hx); HY.push(hy);
   X.push(hx); Y.push(hy);
-  VX.push(0); VY.push(0);
   PIN.push(false); PX.push(hx); PY.push(hy);
-  EDGES.push({ a: last, b: N, L: 1 }); // last = -1 nghĩa là treo từ điểm treo
+  EDGES.push({ a: prev, b: N, L: 1 }); // prev = -1 nghĩa là treo từ điểm treo
   N++;
-  trail = [];
   updateScale();
+  startRelax(null);
   updateLinkControls();
 }
 
 function removeNode() {
   if (N <= 1) return;
   N--;
-  HX.pop(); HY.pop(); X.pop(); Y.pop(); VX.pop(); VY.pop();
+  HX.pop(); HY.pop(); X.pop(); Y.pop();
   PIN.pop(); PX.pop(); PY.pop();
   EDGES = EDGES.filter((e) => e.a < N && e.b < N);
-  if (dragging >= N) dragging = -1;
   if (linkSrc >= N) linkSrc = -1;
-  trail = [];
   updateScale();
+  startRelax(null);
   updateLinkControls();
 }
 
@@ -827,9 +627,7 @@ function nodeLabel(i) {
 }
 
 function distBetween(a, b) {
-  const ax = a < 0 ? 0 : X[a], ay = a < 0 ? 0 : Y[a];
-  const bx = b < 0 ? 0 : X[b], by = b < 0 ? 0 : Y[b];
-  return Math.hypot(bx - ax, by - ay);
+  return edgeLength({ a, b }, X, Y);
 }
 
 function edgeIndex(a, b) {
@@ -849,7 +647,7 @@ function toggleEdge(a, b) {
     EDGES.push({ a, b, L });
     message = `đã nối ${nodeLabel(a)} – ${nodeLabel(b)}`;
   }
-  trail = [];
+  startRelax(null);
   updateLinkControls();
 }
 
@@ -857,7 +655,6 @@ function toggleLinkMode() {
   linkMode = !linkMode;
   if (linkMode) pinMode = false;
   linkSrc = -1;
-  dragging = -1;
   message = "";
   updateLinkControls();
 }
@@ -890,9 +687,8 @@ function togglePinOf(i) {
     PX[i] = X[i];
     PY[i] = Y[i];
   }
-  VX[i] = 0;
-  VY[i] = 0;
   message = PIN[i] ? `đã ghim node ${i + 1}` : `đã bỏ ghim node ${i + 1}`;
+  startRelax(null);
   updateLinkControls();
 }
 
@@ -900,16 +696,24 @@ function togglePinMode() {
   pinMode = !pinMode;
   if (pinMode) linkMode = false;
   linkSrc = -1;
-  dragging = -1;
   message = "";
   updateLinkControls();
 }
 
 function clearPins() {
-  for (let i = 0; i < N; i++) {
-    PIN[i] = false;
-  }
+  PIN.fill(false);
   message = "đã bỏ ghim tất cả node";
+  startRelax(null);
+  updateLinkControls();
+}
+
+// Đưa về lưới ban đầu rồi cân bằng lại.
+function reset() {
+  X = HX.slice();
+  Y = HY.slice();
+  PX = HX.slice();
+  PY = HY.slice();
+  startRelax("đã reset về lưới ban đầu");
   updateLinkControls();
 }
 
@@ -931,7 +735,7 @@ function updateLinkControls() {
   }
 }
 
-// ---- Tương tác chuột ----
+// ---- Tương tác chuột / bàn phím ----
 
 function localPoint(ev) {
   const r = canvas.getBoundingClientRect();
@@ -940,57 +744,16 @@ function localPoint(ev) {
 
 canvas.addEventListener("pointerdown", (ev) => {
   const p = localPoint(ev);
-  relaxing = false;
   if (linkMode) {
     handleLinkClick(p);
-    return;
-  }
-  if (pinMode) {
+  } else if (pinMode) {
     const hit = pick(p);
     if (hit >= 0) togglePinOf(hit);
-    return;
   }
-  const hit = pick(p);
-  if (hit < 0) return;
-  dragging = hit;
-  dragX = wx(p.x);
-  dragY = wy(p.y);
-  canvas.classList.add("dragging");
-  canvas.setPointerCapture(ev.pointerId);
 });
-
-canvas.addEventListener("pointermove", (ev) => {
-  if (dragging < 0) return;
-  const p = localPoint(ev);
-  dragX = wx(p.x);
-  dragY = wy(p.y);
-});
-
-function endDrag(ev) {
-  if (dragging < 0) return;
-  if (PIN[dragging]) {
-    PX[dragging] = X[dragging];
-    PY[dragging] = Y[dragging];
-  }
-  dragging = -1;
-  acc = 0;
-  last = performance.now();
-  canvas.classList.remove("dragging");
-  if (ev && ev.pointerId !== undefined) {
-    try { canvas.releasePointerCapture(ev.pointerId); } catch (_) {}
-  }
-}
-
-canvas.addEventListener("pointerup", endDrag);
-canvas.addEventListener("pointercancel", endDrag);
 
 window.addEventListener("keydown", (ev) => {
-  if (ev.code === "Space") {
-    ev.preventDefault();
-    paused = !paused;
-    last = performance.now();
-    acc = 0;
-  } else if (ev.key === "r" || ev.key === "R") {
+  if (ev.key === "r" || ev.key === "R") {
     reset();
   } else if (ev.key === "+" || ev.key === "=") {
     addNode();
@@ -1004,25 +767,8 @@ window.addEventListener("keydown", (ev) => {
   }
 });
 
-frictionEl.addEventListener("input", () => {
-  frictionBase = parseFloat(frictionEl.value);
-  frictionValEl.textContent = frictionBase.toFixed(2);
-});
-frictionBase = parseFloat(frictionEl.value) || 0;
-frictionValEl.textContent = frictionBase.toFixed(2);
-
 arrangeBtn.addEventListener("click", arrangePins);
-relaxBtn.addEventListener("click", () => {
-  relaxing = true;
-  relaxSweepsDone = 0;
-  message = "đang cân bằng...";
-  updateLinkControls();
-});
-settleBtn.addEventListener("click", () => {
-  frictionEl.value = "5";
-  frictionBase = 5;
-  frictionValEl.textContent = "5.00";
-});
+relaxBtn.addEventListener("click", () => startRelax("đang cân bằng..."));
 lessBtn.addEventListener("click", removeNode);
 moreBtn.addEventListener("click", addNode);
 linkModeBtn.addEventListener("click", toggleLinkMode);
