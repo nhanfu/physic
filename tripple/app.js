@@ -108,27 +108,6 @@ function netStructure(nNodes, nEdges, nPins) {
   const len = ([a, b]) => Math.hypot(home[b].x - home[a].x, home[b].y - home[a].y);
   nEdges = Math.max(nNodes - 1, Math.min(cand.length, Math.floor(nEdges) || 0));
 
-  for (let i = cand.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [cand[i], cand[j]] = [cand[j], cand[i]];
-  }
-  // cây khung ngẫu nhiên (Kruskal)
-  const uf = Array.from({ length: nNodes }, (_, i) => i);
-  const find = (x) => (uf[x] === x ? x : (uf[x] = find(uf[x])));
-  const tree = [];
-  const rest = [];
-  for (const [a, b] of cand) {
-    const ra = find(a), rb = find(b);
-    if (ra !== rb) {
-      uf[ra] = rb;
-      tree.push([a, b]);
-    } else {
-      rest.push([a, b]);
-    }
-  }
-  const chosen = tree.concat(rest.slice(0, nEdges - tree.length));
-  const edges = chosen.map(([a, b]) => ({ a, b, L: len([a, b]) }));
-
   // ghim ngẫu nhiên, không chọn node liền kề với node đã ghim
   const want = Math.max(0, Math.min(nNodes, Math.floor(nPins) || 0));
   const order = Array.from({ length: nNodes }, (_, i) => i);
@@ -148,7 +127,33 @@ function netStructure(nNodes, nEdges, nPins) {
     for (const j of adj[i]) blocked[j] = true;
   }
 
+  for (let i = cand.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [cand[i], cand[j]] = [cand[j], cand[i]];
+  }
+  // cạnh nối với node ghim xét trước để node ghim có nhiều cạnh nhất
+  const touchesPin = ([a, b]) => pinned[a] || pinned[b];
+  const ordered = cand.filter(touchesPin).concat(cand.filter((c) => !touchesPin(c)));
+  // cây khung ngẫu nhiên (Kruskal)
+  const uf = Array.from({ length: nNodes }, (_, i) => i);
+  const find = (x) => (uf[x] === x ? x : (uf[x] = find(uf[x])));
+  const tree = [];
+  const rest = [];
+  for (const [a, b] of ordered) {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) {
+      uf[ra] = rb;
+      tree.push([a, b]);
+    } else {
+      rest.push([a, b]);
+    }
+  }
+  const chosen = tree.concat(rest.slice(0, nEdges - tree.length));
+  const edges = chosen.map(([a, b]) => ({ a, b, L: len([a, b]) }));
+
   setStructure(home, edges, pinned);
+  // mặc định xếp các ghim thành một hàng ngang
+  if (pinCount > 0) arrangePins();
 
   netNEl.value = String(nNodes);
   netEEl.min = String(nNodes - 1);
@@ -844,6 +849,6 @@ netBtn.addEventListener("click", () =>
 
 window.addEventListener("resize", resize);
 
-netStructure(20, 26, 2); // lưới ngẫu nhiên mặc định khi mở trang
+netStructure(40, 52, 4); // lưới ngẫu nhiên mặc định khi mở trang (40 node để test hiệu năng)
 resize();
 requestAnimationFrame(frame);
