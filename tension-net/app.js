@@ -16,6 +16,8 @@ const FADE_FRAC = 0.5; // node có y > FADE_FRAC · y_max (nửa dưới) đư�
 let net = null, act = null, solver = null;
 let tourState = null; // {order, used, edges, length}: chu trình đang hiển thị
 let tourAnim = null;  // {stages, i, nextT}: hoạt ảnh các bước chèn xa nhất
+let hoverSeg = null;  // đoạn chu trình đang được rê chuột vào
+let renderedTour = null;
 let autoTourPending = false; // tự chạy hoạt ảnh khi lưới vừa cân bằng xong
 const STAGE_MS = 1200;
 let cols = 0, rows = 0;
@@ -208,19 +210,28 @@ canvas.addEventListener('dblclick', () => resetView());
 
 document.getElementById('gen').addEventListener('click', generate);
 
-// chu trình qua các ghim: thứ tự chèn xa nhất, node thừa làm mờ, sợi trên đường đi tô màu
-function tourEdgesOf(order) {
-  const set = new Set();
+// các đoạn của chu trình: với mỗi cặp ghim liền kề, đường ngắn nhất (theo sợi) giữa chúng
+function tourSegments(order) {
+  const segs = [];
   const m = order.length;
   for (let p = 0; p < m; p++) {
     const s0 = order[p], t0 = order[(p + 1) % m];
     const { prev } = core.dijkstra(net, act, s0);
-    for (let c = t0; c !== s0 && c >= 0; c = prev[c]) {
-      const pc = prev[c];
-      for (const [v, k] of act.nbE[c]) if (v === pc) { set.add(k); break; }
+    const nodes = [];
+    for (let c = t0; c >= 0; c = prev[c]) {
+      nodes.push(c);
+      if (c === s0) break;
     }
+    nodes.reverse();
+    const edges = new Set();
+    let len = 0;
+    for (let q = 1; q < nodes.length; q++) {
+      const x = nodes[q - 1], y = nodes[q];
+      for (const [v, k] of act.nbE[y]) if (v === x) { edges.add(k); len += net.L[k]; break; }
+    }
+    segs.push({ from: s0, to: t0, nodes, nodeSet: new Set(nodes), edges, length: len });
   }
-  return set;
+  return segs;
 }
 
 // dựng các bước của chu trình: mỗi bước là chu trình trên các ghim đã chèn tới lúc đó
@@ -237,10 +248,19 @@ function buildTourStages() {
   };
   return t.snapshots.slice(1).concat([t.order]).map((snap) => {
     const order = snap.map((k) => pinIdx[k]);
+    const segments = tourSegments(order);
+    const edges = new Set();
+    const nodes = new Set();
+    segments.forEach((sg) => {
+      sg.edges.forEach((k) => edges.add(k));
+      sg.nodeSet.forEach((n) => nodes.add(n));
+    });
     return {
       order,
       used: core.usedNodes(net, act, order),
-      edges: tourEdgesOf(order),
+      segments,
+      edges,
+      nodes,
       length: cycleLen(snap),
     };
   });
@@ -252,6 +272,26 @@ function startTourAnim(now) {
   autoTourPending = false;
   tourAnim = { stages, i: 0, nextT: now };
 }
+
+// danh sách các đoạn của chu trình hiện tại; rê chuột vào mục nào thì đoạn đó được làm sáng
+function renderTourList() {
+  const box = document.getElementById('tourlist');
+  if (!tourState) { box.innerHTML = ''; hoverSeg = null; return; }
+  const rows = tourState.segments.map((sg, i) => {
+    const seq = sg.nodes.map((n) => n + 1).join(' → ');
+    return `<div class="seg" data-i="${i}"><b>${i + 1}. ghim ${sg.from + 1} → ghim ${sg.to + 1}</b> · ` +
+      `${sg.edges.size} sợi · ${sg.length.toFixed(3)}<br><span class="nodes">${seq}</span></div>`;
+  });
+  box.innerHTML = `<div class="head">chu trình ${tourState.order.map((n) => n + 1).join(' → ')} → ${tourState.order[0] + 1} · ` +
+    `dài ${tourState.length.toFixed(3)}</div>` + rows.join('');
+  hoverSeg = null;
+}
+
+document.getElementById('tourlist').addEventListener('mouseover', (ev) => {
+  const el = ev.target.closest('.seg');
+  hoverSeg = el ? +el.dataset.i : null;
+});
+document.getElementById('tourlist').addEventListener('mouseleave', () => { hoverSeg = null; });
 
 document.getElementById('tour').addEventListener('click', () => {
   if (!net || !solver.done) return;
@@ -314,9 +354,13 @@ function draw() {
     const d = Math.hypot(X[b] - X[a], Y[b] - Y[a], Z[b] - Z[a]);
     const s = d - L[k];
     const onTour = tourState && tourState.edges.has(k);
+    const hs = hoverSeg !== null && tourState ? tourState.segments[hoverSeg] : null;
     const dim = faded[a] || faded[b] || (tourState && !(tourState.used[a] && tourState.used[b]));
-    ctx.globalAlpha = dim ? 0.15 : 1;
-    if (onTour) {
+    ctx.globalAlpha = dim ? 0.15 : (hs && onTour && !hs.edges.has(k) ? 0.35 : 1);
+    if (onTour && hs && hs.edges.has(k)) {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 6;
+    } else if (onTour) {
       ctx.strokeStyle = '#ffd79f';
       ctx.lineWidth = 4;
     } else if (s > 1e-9) {
@@ -341,11 +385,19 @@ function draw() {
     if (!pin[i] && !act.alive[i]) continue;
     const [u, v] = proj(X[i], Y[i], Z[i]);
     const hideTour = tourState && !tourState.used[i] && !pin[i];
+    const onTour = tourState && tourState.nodes.has(i);
     ctx.globalAlpha = faded[i] || hideTour ? 0.2 : 1;
     if (pin[i]) {
-      ctx.fillStyle = '#ffd79f';
+      const hsP = hoverSeg !== null && tourState ? tourState.segments[hoverSeg] : null;
+      ctx.fillStyle = hsP && hsP.nodeSet.has(i) ? '#ffffff' : '#ffd79f';
       ctx.beginPath();
       ctx.arc(u, v, 5, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (onTour) {
+      const hsN = hoverSeg !== null && tourState ? tourState.segments[hoverSeg] : null;
+      ctx.fillStyle = hsN && hsN.nodeSet.has(i) ? '#ffffff' : '#ffd79f';
+      ctx.beginPath();
+      ctx.arc(u, v, 3.5, 0, Math.PI * 2);
       ctx.fill();
     } else {
       ctx.fillStyle = '#cfd8e3';
@@ -384,6 +436,10 @@ function frame(now) {
     tourAnim.i++;
     if (tourAnim.i >= tourAnim.stages.length) tourAnim = null;
     else tourAnim.nextT = now + STAGE_MS;
+  }
+  if (tourState !== renderedTour) {
+    renderedTour = tourState;
+    renderTourList();
   }
   draw();
   if (++frameNo % 10 === 0) updateInfo();

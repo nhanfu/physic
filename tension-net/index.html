@@ -25,6 +25,16 @@
   #row { margin-top: 6px; }
   #info { color: #ffd79f; margin-top: 6px; }
   #hint { color: #8b95a5; margin-top: 4px; max-width: 560px; white-space: normal; }
+  #tourlist {
+    position: fixed; top: 14px; right: 14px; width: 330px; max-height: 80vh; overflow: auto;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #c3ccd8;
+    background: rgba(11,13,16,0.85); border: 1px solid #2c343f; border-radius: 6px; padding: 8px 10px;
+  }
+  #tourlist:empty { display: none; }
+  #tourlist .head { color: #ffd79f; margin-bottom: 6px; }
+  #tourlist .seg { padding: 4px 6px; border-radius: 4px; cursor: default; }
+  #tourlist .seg:hover { background: #1f2630; color: #ffffff; }
+  #tourlist .nodes { color: #8b95a5; word-break: break-word; }
 </style>
 </head>
 <body>
@@ -38,7 +48,8 @@
     <button id="view">Đặt lại góc nhìn</button>
     <button id="tour">Chu trình</button></div>
   <div id="info"></div>
-  <div id="hint">Trần là mặt phẳng y = 0 chứa các ghim (màu cam). Trọng lực kéo phần còn lại xuống.
+  <div id="tourlist"></div>
+<div id="hint">Trần là mặt phẳng y = 0 chứa các ghim (màu cam). Trọng lực kéo phần còn lại xuống.
     Kéo nền để xoay, cuộn để zoom, click node để ghim/bỏ ghim, kéo node để đổi vị trí ghim trên mặt phẳng của nó.
     Node ở nửa dưới sau khi cân bằng được làm mờ; sợi càng căng càng đỏ.</div>
 </div>
