@@ -174,6 +174,7 @@ function isFixed(i) {
 // được giải chính xác từ (J Jᵀ) μ = −C theo kiểu SHAKE để vị trí thỏa ràng buộc, sau đó
 // vận tốc được chiếu lên không gian tiếp tuyến (RATTLE): J v = 0.
 const SHAKE_ITER = 8;
+const REG = 1e-7; // chính quy hóa tương đối cho hệ nhân tử
 
 // Các ràng buộc có ít nhất một đầu tự do (ràng buộc giữa hai node cố định là hằng số).
 function activeEdges() {
@@ -210,6 +211,8 @@ function multipliers(active, dx, dy, rhs) {
     eN[p] = ns;
     eS[p] = ss;
   }
+  const nominal = new Float64Array(M); // đường chéo danh nghĩa của J Jᵀ
+  for (let p = 0; p < M; p++) nominal[p] = eN[p].length * (dx[p] * dx[p] + dy[p] * dy[p]);
   const sumX = new Float64Array(N), sumY = new Float64Array(N);
   // out = (J Jᵀ) v
   const apply = (v, out) => {
@@ -228,13 +231,14 @@ function multipliers(active, dx, dy, rhs) {
         const n = eN[p][u];
         o += eS[p][u] * (dx[p] * sumX[n] + dy[p] * sumY[n]);
       }
-      out[p] = o + 1e-12 * v[p];
+      out[p] = o + (REG * nominal[p] + 1e-12) * v[p];
     }
   };
   const diag = new Float64Array(M);
   let bnorm = 0;
   for (let p = 0; p < M; p++) {
-    diag[p] = eN[p].length * (dx[p] * dx[p] + dy[p] * dy[p]) + 1e-12;
+    // chính quy hóa Tikhonov: ma trận J Jᵀ gần suy biến khi lưới có ô tam giác
+    diag[p] = nominal[p] * (1 + REG) + 1e-12;
     bnorm = Math.max(bnorm, Math.abs(rhs[p]));
   }
   const x = new Float64Array(M);
@@ -270,52 +274,82 @@ function multipliers(active, dx, dy, rhs) {
   return Array.from(x);
 }
 
-// SHAKE: hiệu chỉnh vị trí sao cho mọi rod đúng chiều dài, Δp = Jᵀμ, (J Jᵀ)μ = −C.
+// Sợi chỉ: chỉ chống kéo giãn, không chống nén. Ràng buộc C_k = ½(|d|² − L²) ≤ 0 là
+// bất đẳng thức; chỉ các sợi đang căng (C > 0) mới được kéo về đúng chiều dài. Sợi chùng
+// không tác dụng lực. Nhân tử μ ≤ 0 tương ứng với lực kéo vào trong (lực căng hợp lệ).
+const STRING_TOL = 1e-9; // dung sai: sợi căng trong sai số làm tròn không bị hiệu chỉnh
+
+// SHAKE cho các sợi căng: Δp = Jᵀμ, (J Jᵀ)μ = −C, bỏ qua sợi nào cần đẩy (μ > 0).
 function shake(xs, ys, active, iters = SHAKE_ITER) {
   for (let it = 0; it < iters; it++) {
     const { dx, dy } = edgeVectors(xs, ys, active);
     const C = active.map(
       (k, p) => 0.5 * (dx[p] * dx[p] + dy[p] * dy[p] - EDGES[k].L * EDGES[k].L)
     );
-    let worst = 0;
-    for (const c of C) worst = Math.max(worst, Math.abs(c));
-    if (worst < 1e-12) break;
-    const mu = multipliers(active, dx, dy, C.map((c) => -c));
-    active.forEach((k, p) => {
-      const e = EDGES[k];
+    let sel = [];
+    for (let p = 0; p < active.length; p++) if (C[p] > STRING_TOL) sel.push(p);
+    if (sel.length === 0) break;
+    const mu = multipliers(
+      sel.map((p) => active[p]),
+      sel.map((p) => dx[p]),
+      sel.map((p) => dy[p]),
+      sel.map((p) => -C[p])
+    );
+    sel.forEach((p, q) => {
+      if (mu[q] > 0) return;
+      const e = EDGES[active[p]];
       if (e.b >= 0 && !isFixed(e.b)) {
-        xs[e.b] += mu[p] * dx[p];
-        ys[e.b] += mu[p] * dy[p];
+        xs[e.b] += mu[q] * dx[p];
+        ys[e.b] += mu[q] * dy[p];
       }
       if (e.a >= 0 && !isFixed(e.a)) {
-        xs[e.a] -= mu[p] * dx[p];
-        ys[e.a] -= mu[p] * dy[p];
+        xs[e.a] -= mu[q] * dx[p];
+        ys[e.a] -= mu[q] * dy[p];
       }
     });
   }
 }
 
-// RATTLE: chiếu vận tốc lên không gian tiếp tuyến của các rod, J v = 0.
+// RATTLE cho sợi căng: sợi đang căng mà đầu hai nút đang tách ra thì chiếu vận tốc
+// (J v = 0) bằng lực kéo vào; sợi chùng thì không chiếu.
 function projectVelocities(active) {
   const { dx, dy } = edgeVectors(X, Y, active);
-  const rhs = active.map((k, p) => {
+  const dvn = active.map((k, p) => {
     const e = EDGES[k];
     const dvx = (e.b < 0 ? 0 : VX[e.b]) - (e.a < 0 ? 0 : VX[e.a]);
     const dvy = (e.b < 0 ? 0 : VY[e.b]) - (e.a < 0 ? 0 : VY[e.a]);
-    return -(dx[p] * dvx + dy[p] * dvy);
+    return dx[p] * dvx + dy[p] * dvy;
   });
-  const nu = multipliers(active, dx, dy, rhs);
-  active.forEach((k, p) => {
-    const e = EDGES[k];
-    if (e.b >= 0 && !isFixed(e.b)) {
-      VX[e.b] += nu[p] * dx[p];
-      VY[e.b] += nu[p] * dy[p];
+  let sel = [];
+  for (let p = 0; p < active.length; p++) {
+    const e = EDGES[active[p]];
+    const C = 0.5 * (dx[p] * dx[p] + dy[p] * dy[p] - e.L * e.L);
+    if (C >= -1e-9 && dvn[p] > 0) sel.push(p);
+  }
+  for (let round = 0; round < 4 && sel.length > 0; round++) {
+    const nu = multipliers(
+      sel.map((p) => active[p]),
+      sel.map((p) => dx[p]),
+      sel.map((p) => dy[p]),
+      sel.map((p) => -dvn[p])
+    );
+    const keep = sel.filter((p, q) => nu[q] <= 0);
+    if (keep.length === sel.length) {
+      sel.forEach((p, q) => {
+        const e = EDGES[active[p]];
+        if (e.b >= 0 && !isFixed(e.b)) {
+          VX[e.b] += nu[q] * dx[p];
+          VY[e.b] += nu[q] * dy[p];
+        }
+        if (e.a >= 0 && !isFixed(e.a)) {
+          VX[e.a] -= nu[q] * dx[p];
+          VY[e.a] -= nu[q] * dy[p];
+        }
+      });
+      break;
     }
-    if (e.a >= 0 && !isFixed(e.a)) {
-      VX[e.a] -= nu[p] * dx[p];
-      VY[e.a] -= nu[p] * dy[p];
-    }
-  });
+    sel = keep;
+  }
 }
 
 // Một bước Verlet vận tốc với ràng buộc. Ma sát: gia tốc −friction·v.
@@ -532,7 +566,7 @@ function arrangePins() {
     for (const e of EDGES) {
       const ax = e.a < 0 ? 0 : xs[e.a], ay = e.a < 0 ? 0 : ys[e.a];
       const bx = e.b < 0 ? 0 : xs[e.b], by = e.b < 0 ? 0 : ys[e.b];
-      viol = Math.max(viol, Math.abs(Math.hypot(bx - ax, by - ay) - e.L));
+      viol = Math.max(viol, Math.hypot(bx - ax, by - ay) - e.L); // sợi chỉ chỉ cấm kéo quá dài
     }
     if (viol < 1e-7) {
       X = xs;
