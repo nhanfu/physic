@@ -287,65 +287,6 @@
     return { P, edges, L, cols, rows };
   }
 
-  // Kéo tối đa: các ghim được co giãn quanh tâm của chúng (trong mặt phẳng x–z) với hệ số s.
-  // Tìm s lớn nhất (bisection) mà độ giãn sợi lớn nhất vẫn ≤ tolStretch: đó là trạng thái
-  // sợi căng gần như hoàn toàn. Ở giới hạn không giãn, khoảng cách hai ghim bằng độ dài đường
-  // ngắn nhất (theo chiều dài sợi) nối chúng, đây là thông tin rút ra từ việc kéo tối đa.
-  // Trả về {scale, maxStretch} và đặt net về trạng thái tương ứng; null nếu s = 1 đã vượt ngưỡng.
-  function maxPull(net, opts = {}) {
-    const tolStretch = opts.tolStretch ?? 1e-3;
-    const iters = opts.iters ?? 16;
-    const sHi = opts.sHi ?? 4;
-    const pinIdx = [];
-    for (let i = 0; i < net.N; i++) if (net.pin[i]) pinIdx.push(i);
-    if (pinIdx.length < 2) return null;
-    let cx = 0, cz = 0;
-    for (const i of pinIdx) { cx += net.X[i]; cz += net.Z[i]; }
-    cx /= pinIdx.length;
-    cz /= pinIdx.length;
-    const baseX = pinIdx.map((i) => net.X[i]);
-    const baseZ = pinIdx.map((i) => net.Z[i]);
-    const freeX = Float64Array.from(net.X), freeY = Float64Array.from(net.Y), freeZ = Float64Array.from(net.Z);
-    const act = activeSet(net);
-
-    const trial = (s) => {
-      // đặt lại vị trí ban đầu để kết quả không phụ thuộc lịch sử bisection
-      net.X.set(freeX); net.Y.set(freeY); net.Z.set(freeZ);
-      pinIdx.forEach((i, k) => {
-        net.X[i] = cx + (baseX[k] - cx) * s;
-        net.Z[i] = cz + (baseZ[k] - cz) * s;
-      });
-      const solver = new Solver(net, act, { tol: 1e-7, maxSweeps: 100000 });
-      let guard = 0;
-      while (!solver.done && guard++ < 500) solver.step(2000);
-      return diagnosticsMaxStretch(net, act);
-    };
-
-    let lo = 1, hi = sHi;
-    let best = trial(lo);
-    if (best > tolStretch) return null;
-    let loState = { scale: lo, maxStretch: best };
-    for (let it = 0; it < iters; it++) {
-      const mid = (lo + hi) / 2;
-      const m = trial(mid);
-      if (m <= tolStretch) { lo = mid; loState = { scale: mid, maxStretch: m }; }
-      else hi = mid;
-    }
-    trial(lo); // đặt net về trạng thái lo
-    return loState;
-  }
-
-  function diagnosticsMaxStretch(net, act) {
-    const { X, Y, Z, edges, L } = net;
-    let m = 0;
-    edges.forEach(([a, b], k) => {
-      if (!act.edgeOn[k]) return;
-      const s = Math.hypot(X[b] - X[a], Y[b] - Y[a], Z[b] - Z[a]) - L[k];
-      if (s > m) m = s;
-    });
-    return m;
-  }
-
   // ---- Chu trình qua các ghim ----
 
   // Dijkstra từ node s trên các sợi tham gia, trọng số = chiều dài nghỉ L (đường căng có độ dài
@@ -435,7 +376,7 @@
   }
 
   const api = {
-    createNet, activeSet, energy, sweep, Solver, diagnostics, buildSheet, maxPull, diagnosticsMaxStretch,
+    createNet, activeSet, energy, sweep, Solver, diagnostics, buildSheet,
     dijkstra, pinDistances, farthestInsertionTour, usedNodes,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

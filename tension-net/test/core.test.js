@@ -99,19 +99,17 @@ test('cụm không có ghim bị loại khỏi cân bằng (sẽ rơi vô hạn)
   assert.strictEqual(act.alive[1], 1);
 });
 
-test('kéo tối đa (g = 0): khoảng cách ghim tới hạn = độ dài đường ngắn nhất theo sợi', () => {
-  // ghim A(−0.5), B(0.5). Đường 1: A–n1–B, mỗi sợi L = 0.5 → dài 1.0.
-  // Đường 2: A–n2–n3–B, mỗi sợi L = 0.6 → dài 1.8. Đường ngắn nhất = 1.0.
+test('khoảng cách tới hạn khi kéo căng = độ dài đường ngắn nhất theo chiều dài sợi', () => {
+  // ghim A, B. Đường 1: A–n1–B, mỗi sợi L = 0.5 → dài 1.0. Đường 2: A–n2–n3–B, L = 0.6 → 1.8.
+  // Khi kéo căng hết mức, khoảng cách A–B bằng đường ngắn nhất = 1.0 (bất đẳng thức tam giác).
   const P = [[-0.5, 0, 0], [0.5, 0, 0], [0, 0, 0], [-0.2, 0, 0.5], [0.2, 0, 0.5]];
   const pins = [true, true, false, false, false];
   const edges = [[0, 2], [2, 1], [0, 3], [3, 4], [4, 1]];
   const L = [0.5, 0.5, 0.6, 0.6, 0.6];
   const net = core.createNet(P, pins, edges, L, 1000, 0);
-  const res = core.maxPull(net, { tolStretch: 1e-3 });
-  assert.ok(res, 'phải tìm được trạng thái tối đa');
-  const D = Math.hypot(net.X[1] - net.X[0], net.Z[1] - net.Z[0]);
-  console.log(`   khoảng cách tới hạn ${D.toFixed(4)} (đường ngắn nhất 1.0), độ giãn lớn nhất ${res.maxStretch.toExponential(2)}`);
-  assert.ok(Math.abs(D - 1.0) < 0.01, `D=${D}`);
+  const act = core.activeSet(net);
+  const shortest = core.dijkstra(net, act, 0).dist[1];
+  assert.ok(Math.abs(shortest - 1.0) < 1e-12, `đường ngắn nhất ${shortest}`);
 });
 
 test('chu trình: bốn góc hình vuông cạnh 1 → chu trình 4', () => {

@@ -105,7 +105,7 @@ function generate() {
   const k = Math.min(pNum, per.length);
   const pinIdx = [];
   for (let j = 0; j < k; j++) pinIdx.push(per[Math.floor((j * per.length) / k)]);
-  // chiều dài sợi ≥ khoảng cách ban đầu: lưới khởi đầu không bị giãn, kéo tối đa tìm từ đó
+  // chiều dài sợi ≥ khoảng cách ban đầu: lưới khởi đầu không bị giãn
   const sh = core.buildSheet(cols, rows, m, Math.random, 1.0, 1.2, pinIdx);
   const pinSet = new Set(pinIdx);
   const pins = sh.P.map((_, i) => pinSet.has(i));
@@ -207,7 +207,7 @@ canvas.addEventListener('wheel', (ev) => {
 canvas.addEventListener('dblclick', () => resetView());
 
 document.getElementById('gen').addEventListener('click', generate);
-// kéo tối đa: g = 0, ghim co giãn ra xa đến khi sợi gần như không giãn được nữa
+
 // chu trình qua các ghim: thứ tự chèn xa nhất, node thừa làm mờ, sợi trên đường đi tô màu
 function tourEdgesOf(order) {
   const set = new Set();
@@ -259,17 +259,6 @@ document.getElementById('tour').addEventListener('click', () => {
 });
 
 
-document.getElementById('max').addEventListener('click', () => {
-  if (!net) return;
-  const savedG = net.g;
-  net.g = 0;
-  const res = core.maxPull(net, { tolStretch: 1e-3 });
-  net.g = savedG;
-  rebuild();
-  infoEl.textContent = res
-    ? `kéo tối đa: hệ số ${res.scale.toFixed(4)}, độ giãn lớn nhất ${res.maxStretch.toExponential(2)}`
-    : 'không kéo tối đa được (trạng thái khởi đầu đã vượt ngưỡng)';
-});
 document.getElementById('view').addEventListener('click', resetView);
 
 // ---- vẽ ----
