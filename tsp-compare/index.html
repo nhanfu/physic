@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TSP: Held–Karp so với chèn xa nhất</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0d10; overflow: hidden; }
+  canvas { display: block; touch-action: none; cursor: crosshair; }
+  canvas.dragging { cursor: grabbing; }
+  #hud {
+    position: fixed; top: 14px; left: 16px;
+    font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #8b95a5; user-select: none;
+  }
+  #hud b { color: #d7dee8; font-weight: 600; }
+  #hud input {
+    font: inherit; width: 56px; color: #d7dee8; background: #12161b;
+    border: 1px solid #2c343f; border-radius: 4px; padding: 0 4px;
+  }
+  #hud button {
+    font: inherit; color: #d7dee8; background: #1a1f26;
+    border: 1px solid #2c343f; border-radius: 4px; padding: 0 8px; cursor: pointer;
+  }
+  #row { margin-top: 6px; }
+  #hint { color: #8b95a5; margin-top: 6px; max-width: 520px; white-space: normal; }
+  #info { color: #ffd79f; margin-top: 6px; }
+  #panel {
+    position: fixed; top: 14px; right: 14px; width: 340px; max-height: 90vh; overflow: auto;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #c3ccd8;
+    background: rgba(11,13,16,0.85); border: 1px solid #2c343f; border-radius: 6px; padding: 8px 10px;
+  }
+  #panel:empty { display: none; }
+  #panel .head { color: #ffd79f; margin: 4px 0 6px; }
+  table.cmp { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  table.cmp th, table.cmp td { text-align: left; padding: 2px 4px; border-bottom: 1px solid #1f2630; }
+  table.cmp td.ord { color: #8b95a5; word-break: break-word; }
+  .legend-hk { color: #ffd79f; }
+  .legend-fi { color: #9fe8ff; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div><b>điểm</b> <input id="n" type="number" min="3" max="60" value="8">
+    <button id="rand">Ngẫu nhiên</button>
+    <button id="clear">Xóa hết</button>
+    <button id="cmp">So sánh</button>
+    <button id="timing">Đo thời gian</button></div>
+  <div id="info"></div>
+  <div id="hint">Click nền để thêm điểm, kéo điểm để di chuyển, chuột phải để xóa điểm gần nhất.
+    <span class="legend-hk">Held–Karp (tối ưu)</span> nét liền, <span class="legend-fi">chèn xa nhất</span> nét đứt.
+    Held–Karp chỉ tính khi có tối đa 12 điểm.</div>
+</div>
+<div id="panel"></div>
+<script src="core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
