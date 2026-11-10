@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Triple Pendulum</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0d10; overflow: hidden; }
+  canvas { display: block; touch-action: none; cursor: grab; }
+  canvas.dragging { cursor: grabbing; }
+  #hud {
+    position: fixed; top: 14px; left: 16px;
+    font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #8b95a5; user-select: none; pointer-events: none;
+  }
+  #hud b { color: #d7dee8; font-weight: 600; }
+  #friction-row { margin-top: 6px; pointer-events: auto; }
+  #friction { vertical-align: middle; width: 160px; accent-color: #5ac8ff; cursor: pointer; }
+  #links-row { margin-top: 6px; pointer-events: auto; }
+  #links-row button {
+    font: inherit; color: #d7dee8; background: #1a1f26;
+    border: 1px solid #2c343f; border-radius: 4px;
+    padding: 0 8px; cursor: pointer;
+  }
+  #links-row button:disabled { opacity: 0.4; cursor: default; }
+  #net-row { margin-top: 6px; pointer-events: auto; }
+  #net-row input {
+    font: inherit; width: 56px; color: #d7dee8; background: #12161b;
+    border: 1px solid #2c343f; border-radius: 4px; padding: 0 4px;
+  }
+  #net-row button {
+    font: inherit; color: #d7dee8; background: #1a1f26;
+    border: 1px solid #2c343f; border-radius: 4px;
+    padding: 0 8px; cursor: pointer;
+  }
+  #link-row { margin-top: 6px; pointer-events: auto; }
+  #link-row button {
+    font: inherit; color: #d7dee8; background: #1a1f26;
+    border: 1px solid #2c343f; border-radius: 4px;
+    padding: 0 8px; cursor: pointer;
+  }
+  #link-row button.on { border-color: #5ac8ff; color: #5ac8ff; }
+  #link-hint { max-width: 420px; color: #ffd79f; white-space: normal; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <b>drag</b> a bob to set the initial state &nbsp;·&nbsp; <b>space</b> pause &nbsp;·&nbsp; <b>R</b> reset<br>
+  <span id="energy"></span>
+  <div id="friction-row">
+    <b>ma sát</b> &nbsp;
+    <input type="range" id="friction" min="0" max="2" step="0.01" value="0">
+    <span id="friction-val">0.00</span>
+  </div>
+  <div id="links-row">
+    <b>node</b> &nbsp;
+    <button id="less">−</button>
+    <span id="links-val">3</span>
+    <button id="more">+</button>
+    &nbsp;(hoặc phím + / −)
+  </div>
+  <div id="net-row">
+    <b>lưới</b> &nbsp;
+    node <input type="number" id="net-n" min="2" max="100" value="20">
+    cạnh <input type="number" id="net-e" min="19" max="31" value="26">
+    <button id="net">Tạo lưới</button>
+  </div>
+  <div id="link-row">
+    <button id="chain">Chuỗi</button>
+    <button id="linkmode">Chế độ nối</button>
+  </div>
+  <div id="link-hint"></div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

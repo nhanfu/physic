@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Schwarzschild Geodesics</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #04060a; overflow: hidden; }
+  canvas { display: block; touch-action: none; cursor: grab; }
+  canvas.dragging { cursor: grabbing; }
+  #hud {
+    position: fixed; top: 14px; left: 16px; max-width: 660px;
+    font: 11.5px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #8b95a5; user-select: none; pointer-events: none;
+    background: rgba(4, 6, 10, 0.72);
+    padding: 10px 13px; border-radius: 7px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  }
+  #hud .title { color: #d7dee8; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+  #hud .eq { color: #c9d4e2; margin-top: 3px; }
+  #hud .dim { color: #5d6876; }
+  #hud .sep { height: 1px; background: #1a2330; margin: 8px 0; }
+  #focus { color: #e6edf6; }
+  #focus b { color: #ffd166; font-weight: 600; }
+  .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: 1px; }
+  .sw.cap { background: #ff5f50; }
+  .sw.esc { background: #50bee1; }
+  .sw.crit { background: #ffc85a; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="title">Schwarzschild null geodesics</div>
+  <div class="eq">u&#8243; + u = (3/2)&#8201;r<sub>s</sub>&#8201;u<sup>2</sup> &nbsp;<span class="dim">(u = 1/r)</span></div>
+  <div class="eq">d<sup>2</sup>x<sup>&#956;</sup>/d&#964;<sup>2</sup> + &#915;<sup>&#956;</sup><sub>&#945;&#946;</sub>&#8201;(dx<sup>&#945;</sup>/d&#964;)(dx<sup>&#946;</sup>/d&#964;) = 0</div>
+  <div class="sep"></div>
+  <div id="focus">hover a ray</div>
+  <div class="dim">b<sub>crit</sub> = (3&#8730;3/2)&#8201;r<sub>s</sub> &#8776; 2.598&#8201;r<sub>s</sub> &nbsp;&#183;&nbsp; lengths in units of r<sub>s</sub></div>
+  <div class="sep"></div>
+  <div class="dim">
+    <span class="sw esc"></span>escapes &nbsp; <span class="sw cap"></span>falls in &nbsp; <span class="sw crit"></span>near-critical<br>
+    parallel light enters from the right &#183; drag pan &#183; wheel zoom<br>space pause &#183; G grid &#183; P photon sphere &#183; D straight refs &#183; R reset
+  </div>
+</div>
+<script src="geodesic.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

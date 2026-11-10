@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lập trình GR</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside id="nav">
+    <div class="brand">
+      <div class="brand-title">Thuyết tương đối rộng<br><small>từ phương trình đến source code</small></div>
+      <a href="../simulation/index.html" class="sim-link">▶ Mô phỏng Trái Đất</a>
+    </div>
+    <div class="progress"><div id="progressBar"></div></div>
+    <div id="progressText" class="progress-text"></div>
+    <nav id="list"></nav>
+  </aside>
+
+  <section id="theoryPane" class="pane">
+    <div class="crumb" id="crumb"></div>
+    <h1 id="title"></h1>
+    <article id="theory"></article>
+    <div class="task">
+      <h2>Nhiệm vụ</h2>
+      <div id="task"></div>
+    </div>
+    <div id="hints"></div>
+    <div class="pager">
+      <button id="prev" class="btn">← Bài trước</button>
+      <button id="next" class="btn">Bài sau →</button>
+    </div>
+  </section>
+
+  <section id="workPane" class="pane">
+    <div class="toolbar">
+      <button id="run" class="btn primary" title="Ctrl/Cmd + Enter">▶ Chạy &amp; kiểm tra</button>
+      <button id="hint" class="btn">💡 Gợi ý</button>
+      <button id="solution" class="btn">Lời giải</button>
+      <button id="resetCode" class="btn ghost">Khôi phục code gốc</button>
+    </div>
+    <div class="editor-wrap"><textarea id="code" spellcheck="false"></textarea></div>
+    <div id="results" class="results"><div class="muted">Bấm <b>Chạy &amp; kiểm tra</b> (Ctrl+Enter) để chạy test.</div></div>
+    <pre id="console" class="console" hidden></pre>
+    <div class="viz">
+      <div class="viz-head">Minh họa</div>
+      <canvas id="viz"></canvas>
+    </div>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+<script src="exercises.js"></script>
+<script src="runner.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

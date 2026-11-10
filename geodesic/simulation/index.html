@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trắc địa Trái Đất</title>
+<style>
+  :root {
+    --bg: #070a12; --panel: #0e1424; --panel-2: #131b30; --line: #22304f;
+    --text: #dfe7f5; --muted: #8796b3; --accent: #5cc8ff; --gr: #4fd1ff;
+    --newton: #9aa4b8; --sun: #ffcc4d; --peri: #ff7a90; --good: #5be3a1; --warn: #ffb44d;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 14px 20px 6px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+  header h1 { font-size: 19px; margin: 0; font-weight: 650; }
+  header p { margin: 0; color: var(--muted); }
+  header a { color: var(--accent); }
+  .layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 12px; padding: 8px 16px 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px;
+    border-bottom: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .card-head b { color: var(--text); font-weight: 600; }
+  canvas { display: block; width: 100%; }
+  #orbit { height: min(62vh, 640px); cursor: zoom-in; }
+  #view3d { height: min(34vh, 330px); cursor: grab; }
+  #chart { height: min(24vh, 230px); }
+  .right { display: flex; flex-direction: column; gap: 12px; }
+  .tabs { display: flex; gap: 4px; }
+  .tabs button, .btn { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 4px 10px; font: inherit; font-size: 12.5px; cursor: pointer; }
+  .tabs button.on, .btn.primary { background: var(--accent); color: #04121c; border-color: var(--accent); font-weight: 600; }
+  .controls { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px 18px;
+    padding: 12px 14px; }
+  .ctl label { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); }
+  .ctl label span { color: var(--text); font-variant-numeric: tabular-nums; }
+  .ctl input[type=range] { width: 100%; accent-color: var(--accent); }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .check { display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted); }
+  .stats { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1px; background: var(--line); }
+  .stat { background: var(--panel); padding: 10px 14px; }
+  .stat .k { color: var(--muted); font-size: 12px; }
+  .stat .v { font-size: 16px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .stat .s { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  .theory { grid-column: 1 / -1; padding: 6px 18px 14px; color: #c3cde0; columns: 2 380px; column-gap: 32px; }
+  .theory h3 { margin: 10px 0 4px; font-size: 14px; color: var(--text); break-after: avoid; }
+  .theory p { margin: 0 0 8px; }
+  code, .mono { font-family: ui-monospace, "JetBrains Mono", Menlo, monospace; font-size: 12.5px; }
+  .note { color: var(--warn); font-size: 12px; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; padding: 8px 16px 16px; } #orbit { height: 60vh; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Đường trắc địa của Trái Đất trong không-thời gian Schwarzschild</h1>
+  <p>Tích phân trực tiếp d²xᵘ/dτ² = −Γᵘ<sub>αβ</sub>uᵅuᵝ · <a href="../exercises/index.html">Bài tập →</a></p>
+</header>
+
+<div class="layout">
+  <section class="card">
+    <div class="card-head">
+      <b>Quỹ đạo nhìn từ trên (mặt phẳng hoàng đạo)</b>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--gr)"></i>GR (trắc địa)</span>
+        <span><i class="sw" style="background:var(--newton)"></i>Newton</span>
+        <span><i class="sw" style="background:var(--peri)"></i>Cận nhật</span>
+      </div>
+    </div>
+    <canvas id="orbit"></canvas>
+  </section>
+
+  <div class="right">
+    <section class="card">
+      <div class="card-head">
+        <b id="view3dTitle">Worldline trong không-thời gian (x, y, t)</b>
+        <div class="tabs" id="view3dTabs">
+          <button data-v="worldline" class="on">Worldline</button>
+          <button data-v="embedding">Không gian cong</button>
+        </div>
+      </div>
+      <canvas id="view3d"></canvas>
+    </section>
+    <section class="card">
+      <div class="card-head">
+        <b id="chartTitle">Thế hiệu dụng</b>
+        <div class="tabs" id="chartTabs">
+          <button data-c="veff" class="on">V<sub>eff</sub>(r)</button>
+          <button data-c="peri">Cận nhật tích lũy</button>
+        </div>
+      </div>
+      <canvas id="chart"></canvas>
+    </section>
+  </div>
+
+  <section class="card controls">
+    <div class="ctl">
+      <div class="row">
+        <button class="btn primary" id="play">⏸ Tạm dừng</button>
+        <button class="btn" id="reset">↺ Đặt lại</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn" data-preset="real">Trái Đất thật</button>
+        <button class="btn" data-preset="amp">Phóng đại</button>
+        <button class="btn" data-preset="strong">Trường mạnh</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <label>Khối lượng Mặt Trời ×<span id="massVal"></span></label>
+      <input type="range" id="mass" min="0" max="6.5" step="0.05" value="0">
+      <div class="s note" id="massNote"></div>
+    </div>
+    <div class="ctl">
+      <label>Độ lệch tâm e <span id="eccVal"></span></label>
+      <input type="range" id="ecc" min="0" max="0.7" step="0.005" value="0.0167">
+    </div>
+    <div class="ctl">
+      <label>Tốc độ (bước/khung hình) <span id="speedVal"></span></label>
+      <input type="range" id="speed" min="1" max="80" step="1" value="10">
+      <div class="row" style="margin-top:4px">
+        <label class="check"><input type="checkbox" id="showNewton" checked> Newton</label>
+        <label class="check"><input type="checkbox" id="showPeri" checked> Đường cận nhật</label>
+      </div>
+    </div>
+  </section>
+
+  <section class="card stats" id="stats"></section>
+
+  <section class="card theory">
+    <h3>Trái Đất không "bị kéo" — nó đi thẳng nhất có thể</h3>
+    <p>Trong thuyết tương đối rộng không có lực hấp dẫn. Mặt Trời làm cong không-thời gian theo metric Schwarzschild
+      <span class="mono">ds² = −(1−2M/r)dt² + dr²/(1−2M/r) + r²dΩ²</span>, và Trái Đất rơi tự do theo
+      <b>đường trắc địa</b> — đường cực trị hóa thời gian riêng τ. Mô phỏng này giải đúng phương trình đó bằng RK4,
+      không dùng công thức lực Newton.</p>
+    <h3>Worldline: đường trắc địa thật sự</h3>
+    <p>Quỹ đạo elip chỉ là hình chiếu. Đường trắc địa sống trong không gian 4 chiều: trong (x, y, t) nó là một
+      đường xoắn ốc. Mỗi vòng dài 1 năm ánh sáng theo trục t nhưng bán kính chỉ 8.3 phút ánh sáng — thực tế nó gần
+      như thẳng đứng. Hình vẽ đã nén trục t rất mạnh. Độ cong <i>thời gian</i> (g<sub>tt</sub>) chứ không phải độ cong
+      không gian là thứ tạo ra hầu hết "lực hấp dẫn" mà ta cảm nhận.</p>
+    <h3>Không gian cong (sơ đồ nhúng Flamm)</h3>
+    <p>Lát cắt t = const của không gian Schwarzschild, nhúng vào 3D: z = 2√(r<sub>s</sub>(r − r<sub>s</sub>)).
+      Đây chỉ là phần không gian; đừng hiểu nhầm "hòn bi lăn trên tấm cao su" — viên bi lăn vì có trọng lực bên ngoài,
+      còn Trái Đất thì không.</p>
+    <h3>Tiên động cận nhật</h3>
+    <p>Thế hiệu dụng của GR có thêm số hạng −2ML²/r³ so với Newton, khiến elip không khép kín: cận nhật quay
+      Δφ ≈ 6πM/(a(1−e²)) mỗi vòng. Với Trái Đất là 0.038″/vòng ≈ 3.8″/thế kỷ — quá nhỏ để nhìn thấy, nên hãy
+      kéo thanh <i>khối lượng</i> để phóng đại. Ở trường mạnh, giá trị đo được lớn hơn công thức bậc một: đó là các
+      hiệu ứng bậc cao, không phải lỗi số.</p>
+  </section>
+</div>
+
+<script src="physics.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

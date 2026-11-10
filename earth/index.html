@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Earth's Geodesic</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #030407; overflow: hidden; }
+  canvas { display: block; touch-action: none; cursor: grab; }
+  canvas.dragging { cursor: grabbing; }
+  #hud {
+    position: fixed; top: 14px; left: 16px; max-width: 540px;
+    font: 11px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #8b95a5; user-select: none; pointer-events: none;
+    background: rgba(4, 6, 10, 0.74);
+    padding: 10px 13px; border-radius: 7px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  }
+  #hud .title { color: #d7dee8; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+  #hud .eq { color: #c9d4e2; margin-top: 3px; }
+  #hud .dim { color: #5d6876; }
+  #hud .sep { height: 1px; background: #1a2330; margin: 8px 0; }
+  #hud b { color: #ffd166; font-weight: 600; }
+  .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: 1px; }
+  .sw.sun { background: #ffb45a; }
+  .sw.earth { background: #7fe3ff; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="title">Earth's worldline &middot; geodesic in curved spacetime</div>
+  <div class="eq">d<sup>2</sup>x<sup>&#956;</sup>/d&#964;<sup>2</sup> + &#915;<sup>&#956;</sup><sub>&#945;&#946;</sub>&#8201;(dx<sup>&#945;</sup>/d&#964;)(dx<sup>&#946;</sup>/d&#964;) = 0</div>
+  <div class="eq">u&#8243; + u = GM/L<sup>2</sup> + (3/2)&#8201;r<sub>s</sub>&#8201;u<sup>2</sup> &nbsp;<span class="dim">(u = 1/r)</span></div>
+  <div class="sep"></div>
+  <div class="dim">vertical axis = coordinate time t (scaled) &middot; 1 turn of the helix = 1 Earth year</div>
+  <div class="dim">Sun: r<sub>s</sub> = 2.95 km &middot; Earth e = 0.0167 &middot; GR term &asymp; 2&times;10<sup>&minus;8</sup></div>
+  <div class="dim">perihelion precession &asymp; 3.8&#8243;/century &mdash; invisible at this scale</div>
+  <div class="sep"></div>
+  <div><span class="sw sun"></span>Sun's worldline &mdash; straight (at rest)</div>
+  <div><span class="sw earth"></span>Earth's worldline &mdash; helix (free fall, no force)</div>
+  <div class="dim">2 space + 1 time projection. The helix looks curved only because these coordinates are curved; in 4D it is the straightest possible path.</div>
+  <div class="sep"></div>
+  <div class="dim">drag &middot; wheel &middot; space pause &middot; G grid &middot; R reset</div>
+</div>
+<script src="orbit.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
