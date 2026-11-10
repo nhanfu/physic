@@ -154,7 +154,6 @@ function localPoint(ev) {
 
 canvas.addEventListener('pointerdown', (ev) => {
   if (!net) return;
-  tourAnim = null;
   const p = localPoint(ev);
   const i = pick(p.x, p.y);
   drag = i >= 0
@@ -180,6 +179,9 @@ canvas.addEventListener('pointermove', (ev) => {
   if (!drag.moved) {
     drag.moved = true;
     if (!net.pin[i]) { net.pin[i] = 1; rebuild(); }
+    tourAnim = null;
+    tourState = null;
+    autoTourPending = true;
   }
   // node được ghim kéo trên mặt phẳng y = y_i của nó
   const [nx, nz] = unprojectPlane(p.x, p.y, net.Y[i]);
@@ -246,7 +248,8 @@ function buildTourStages() {
     for (let p = 0; p < snap.length; p++) len += D[snap[p]][snap[(p + 1) % snap.length]];
     return len;
   };
-  return t.snapshots.slice(1).concat([t.order]).map((snap) => {
+  const snaps = t.snapshots.slice(1).concat([t.order]);
+  return snaps.map((snap, si) => {
     const order = snap.map((k) => pinIdx[k]);
     const segments = tourSegments(order);
     const edges = new Set();
@@ -257,6 +260,7 @@ function buildTourStages() {
     });
     return {
       order,
+      final: si === snaps.length - 1,
       used: core.usedNodes(net, act, order),
       segments,
       edges,
@@ -282,8 +286,11 @@ function renderTourList() {
     return `<div class="seg" data-i="${i}"><b>${i + 1}. ghim ${sg.from + 1} → ghim ${sg.to + 1}</b> · ` +
       `${sg.edges.size} sợi · ${sg.length.toFixed(3)}<br><span class="nodes">${seq}</span></div>`;
   });
+  const done = tourState.final && !tourAnim
+    ? `<div class="done">✓ thuật toán hoàn tất: ${tourState.order.length} ghim, ${tourState.segments.length} đoạn, tổng dài ${tourState.length.toFixed(3)}</div>`
+    : '';
   box.innerHTML = `<div class="head">chu trình ${tourState.order.map((n) => n + 1).join(' → ')} → ${tourState.order[0] + 1} · ` +
-    `dài ${tourState.length.toFixed(3)}</div>` + rows.join('');
+    `dài ${tourState.length.toFixed(3)}</div>` + rows.join('') + done;
   hoverSeg = null;
 }
 
