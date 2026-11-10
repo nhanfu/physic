@@ -449,6 +449,57 @@
     return used;
   }
 
+  // Held–Karp: chu trình ngắn nhất đúng trên ma trận D (m ≤ 12). DP theo tập con, truy vết
+  // thứ tự qua bảng cha. Trả về {order (bắt đầu từ 0), length}.
+  function heldKarpTour(D) {
+    const m = D.length;
+    if (m === 0) return { order: [], length: 0 };
+    if (m === 1) return { order: [0], length: 0 };
+    if (m === 2) return { order: [0, 1], length: 2 * D[0][1] };
+    const FULL = 1 << m;
+    const dp = Array.from({ length: FULL }, () => new Float64Array(m).fill(Infinity));
+    const par = Array.from({ length: FULL }, () => new Int8Array(m).fill(-1));
+    dp[1][0] = 0;
+    for (let S = 1; S < FULL; S++) {
+      if (!(S & 1)) continue;
+      for (let j = 0; j < m; j++) {
+        if (dp[S][j] === Infinity || !(S & (1 << j))) continue;
+        for (let k = 0; k < m; k++) {
+          if (S & (1 << k)) continue;
+          const T = S | (1 << k);
+          const v = dp[S][j] + D[j][k];
+          if (v < dp[T][k]) { dp[T][k] = v; par[T][k] = j; }
+        }
+      }
+    }
+    let best = Infinity, bj = -1;
+    for (let j = 1; j < m; j++) {
+      const v = dp[FULL - 1][j] + D[j][0];
+      if (v < best) { best = v; bj = j; }
+    }
+    const order = [];
+    let S = FULL - 1, j = bj;
+    while (j !== -1) {
+      order.push(j);
+      const pj = par[S][j];
+      S ^= 1 << j;
+      j = pj;
+    }
+    order.reverse();
+    return { order, length: best };
+  }
+
+  // Chu trình tốt nhất có thể: Held–Karp khi m ≤ 12 (tối ưu), ngược lại chèn xa nhất.
+  // Trả về {order, length, exact, heuristicLength}; order là chỉ số local.
+  function bestTour(D) {
+    const h = farthestInsertionTour(D);
+    if (D.length < 3 || D.length > 12) {
+      return { order: h.order, length: h.length, exact: false, heuristicLength: h.length };
+    }
+    const e = heldKarpTour(D);
+    return { order: e.order, length: e.length, exact: true, heuristicLength: h.length };
+  }
+
   // Loại node thừa trước khi cân bằng. Chu trình và các node nằm trên đường ngắn nhất giữa
   // các ghim liền kề chỉ phụ thuộc vào chiều dài nghỉ L, không phụ thuộc vị trí cân bằng,
   // nên tính được trên đồ thị đầy đủ (act0). Các node khác bị bỏ khỏi cân bằng.
@@ -459,9 +510,15 @@
     if (pinIdx.length < 3) return act0;
     const trees = shortestTrees(net, act0, pinIdx);
     const D = pinDistancesT(trees, pinIdx);
-    const t = farthestInsertionTour(D);
-    const order = t.order.map((k) => pinIdx[k]);
-    const used = usedNodesT(net, trees, order);
+    // giữ mọi node nằm trên đường của cả chu trình chèn xa nhất và chu trình tối ưu
+    const best = bestTour(D);
+    const orders = [best.order];
+    if (best.exact) orders.push(farthestInsertionTour(D).order);
+    const used = new Uint8Array(net.N);
+    for (const o of orders) {
+      const u = usedNodesT(net, trees, o.map((k) => pinIdx[k]));
+      for (let i = 0; i < net.N; i++) if (u[i]) used[i] = 1;
+    }
     const alive = new Uint8Array(net.N);
     for (let i = 0; i < net.N; i++) alive[i] = act0.alive[i] && (net.pin[i] || used[i]) ? 1 : 0;
     const edgeOn = new Uint8Array(net.edges.length);
@@ -478,7 +535,7 @@
 
   const api = {
     cyclePrune,
-    shortestTrees, pinDistancesT, pathNodes, usedNodesT,
+    heldKarpTour, bestTour, shortestTrees, pinDistancesT, pathNodes, usedNodesT,
     createNet, activeSet, energy, sweep, Solver, diagnostics, buildSheet,
     dijkstra, pinDistances, farthestInsertionTour, usedNodes,
   };

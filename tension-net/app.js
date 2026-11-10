@@ -18,6 +18,8 @@ let tourState = null; // {order, used, edges, length}: chu trình đang hiển t
 let tourAnim = null;  // {stages, i, nextT}: hoạt ảnh các bước chèn xa nhất
 let hoverSeg = null;  // đoạn chu trình đang được rê chuột vào
 let renderedTour = null;
+let phaseMsg = null;   // thông báo giai đoạn khi chưa có chu trình để hiển thị
+let renderedPhase = null;
 let autoTourPending = false; // tự chạy hoạt ảnh khi lưới vừa cân bằng xong
 const STAGE_MS = 1200;
 let cols = 0, rows = 0;
@@ -231,6 +233,22 @@ function tourSegments(order, trees) {
   return segs;
 }
 
+// so sánh Held–Karp (tối ưu, m ≤ 12) với chèn xa nhất trên cùng ma trận D
+function compareTours(D) {
+  const fi0 = performance.now();
+  const fi = core.farthestInsertionTour(D);
+  const fiMs = performance.now() - fi0;
+  if (D.length < 3 || D.length > 12) return { hk: null, fi: { length: fi.length, order: fi.order, ms: fiMs }, gap: null };
+  const hk0 = performance.now();
+  const hk = core.heldKarpTour(D);
+  const hkMs = performance.now() - hk0;
+  return {
+    hk: { length: hk.length, order: hk.order, ms: hkMs },
+    fi: { length: fi.length, order: fi.order, ms: fiMs },
+    gap: (fi.length / hk.length - 1) * 100,
+  };
+}
+
 // dựng các bước của chu trình: mỗi bước là chu trình trên các ghim đã chèn tới lúc đó
 function buildTourStages() {
   const pinIdx = [];
@@ -238,14 +256,13 @@ function buildTourStages() {
   if (pinIdx.length < 3) return null;
   const trees = core.shortestTrees(net, act, pinIdx);
   const D = core.pinDistancesT(trees, pinIdx);
-  const t = core.farthestInsertionTour(D);
+  const best = core.bestTour(D);
   const cycleLen = (snap) => {
     let len = 0;
     for (let p = 0; p < snap.length; p++) len += D[snap[p]][snap[(p + 1) % snap.length]];
     return len;
   };
-  const snaps = t.snapshots.slice(1).concat([t.order]);
-  return snaps.map((snap, si) => {
+  const makeStage = (snap, extra) => {
     const order = snap.map((k) => pinIdx[k]);
     const segments = tourSegments(order, trees);
     const edges = new Set();
@@ -256,14 +273,44 @@ function buildTourStages() {
     });
     return {
       order,
-      final: si === snaps.length - 1,
       used: core.usedNodesT(net, trees, order),
       segments,
       edges,
       nodes,
       length: cycleLen(snap),
+      ...extra,
     };
-  });
+  };
+  // giai đoạn 1: chèn xa nhất chạy từng bước, đến khi hoàn tất
+  const t = core.farthestInsertionTour(D);
+  const snapsA = t.snapshots.slice(1);
+  const stages = snapsA.map((snap, i) => makeStage(snap, {
+    title: i === snapsA.length - 1 ? 'chèn xa nhất · hoàn tất' : `chèn xa nhất · bước ${i + 1}/${snapsA.length}`,
+    final: false,
+  }));
+  // so sánh (chỉ tính khi có Held–Karp)
+  const cmp = compareTours(D);
+  const toIds = (o) => (o ? o.map((k) => pinIdx[k] + 1) : null);
+  const cmpView = {
+    hk: cmp.hk ? { ...cmp.hk, ids: toIds(cmp.hk.order) } : null,
+    fi: { ...cmp.fi, ids: toIds(cmp.fi.order) },
+    gap: cmp.gap,
+  };
+  if (best.exact) {
+    // giai đoạn 2: Held–Karp chạy sau khi chèn xa nhất đã xong, rồi hiện kết quả tối ưu
+    stages.push({ pending: true, title: 'Held–Karp đang chạy…' });
+    const pct = best.heuristicLength > 0 ? (best.heuristicLength / best.length - 1) * 100 : 0;
+    const label = pct < 1e-9
+      ? 'Held–Karp: tối ưu, trùng chèn xa nhất'
+      : `Held–Karp: tối ưu, chèn xa nhất lệch +${pct.toFixed(2)}%`;
+    stages.push(makeStage(best.order, { title: 'Held–Karp · tối ưu', final: true, label, cmp: cmpView }));
+  } else {
+    const last = stages[stages.length - 1];
+    last.final = true;
+    last.label = 'xấp xỉ (chèn xa nhất; m > 12 nên không tính tối ưu)';
+    last.cmp = cmpView;
+  }
+  return stages;
 }
 
 function startTourAnim(now) {
@@ -274,18 +321,34 @@ function startTourAnim(now) {
 }
 
 // danh sách các đoạn của chu trình hiện tại; rê chuột vào mục nào thì đoạn đó được làm sáng
+function cmpTable(cmp) {
+  if (!cmp) return '';
+  const row = (name, r, extra) => `<tr><td>${name}</td><td>${r.length.toFixed(3)}</td><td>${extra}</td>` +
+    `<td>${r.ms.toFixed(2)} ms</td></tr><tr><td colspan="4" class="ord">${r.ids.join(' → ')}</td></tr>`;
+  const hk = cmp.hk
+    ? row('Held–Karp (tối ưu)', cmp.hk, '0.00%')
+    : '<tr><td colspan="4">Held–Karp chỉ dùng khi có 3–12 ghim</td></tr>';
+  const fi = row('chèn xa nhất', cmp.fi, cmp.gap === null ? '—' : `+${cmp.gap.toFixed(2)}%`);
+  return `<table class="cmp"><tr><th>thuật toán</th><th>độ dài</th><th>lệch</th><th>thời gian</th></tr>${hk}${fi}</table>`;
+}
+
 function renderTourList() {
   const box = document.getElementById('tourlist');
-  if (!tourState) { box.innerHTML = ''; hoverSeg = null; return; }
+  if (!tourState) {
+    box.innerHTML = phaseMsg ? `<div class="head">${phaseMsg}</div>` : '';
+    hoverSeg = null;
+    return;
+  }
   const rows = tourState.segments.map((sg, i) => {
     const seq = sg.nodes.map((n) => n + 1).join(' → ');
     return `<div class="seg" data-i="${i}"><b>${i + 1}. ghim ${sg.from + 1} → ghim ${sg.to + 1}</b> · ` +
       `${sg.edges.size} sợi · ${sg.length.toFixed(3)}<br><span class="nodes">${seq}</span></div>`;
   });
   const done = tourState.final && !tourAnim
-    ? `<div class="done">✓ thuật toán hoàn tất: ${tourState.order.length} ghim, ${tourState.segments.length} đoạn, tổng dài ${tourState.length.toFixed(3)}</div>`
+    ? `<div class="done">✓ thuật toán hoàn tất: ${tourState.order.length} ghim, ${tourState.segments.length} đoạn, tổng dài ${tourState.length.toFixed(3)}<br>${tourState.label}</div>` +
+      cmpTable(tourState.cmp)
     : '';
-  box.innerHTML = `<div class="head">chu trình ${tourState.order.map((n) => n + 1).join(' → ')} → ${tourState.order[0] + 1} · ` +
+  box.innerHTML = `<div class="head">${tourState.title} · chu trình ${tourState.order.map((n) => n + 1).join(' → ')} → ${tourState.order[0] + 1} · ` +
     `dài ${tourState.length.toFixed(3)}</div>` + rows.join('') + done;
   hoverSeg = null;
 }
@@ -428,6 +491,44 @@ function updateInfo() {
     `làm mờ ${nFaded} node · E = ${d.energy.toFixed(3)} · lực dư ${d.maxRes.toExponential(1)} · ${status}` + tourTxt;
 }
 
+// so sánh trên nhiều lưới ngẫu nhiên: khoảng cách chỉ phụ thuộc L nên không cần cân bằng lực
+function compareBatch(trials) {
+  const pNum = Math.max(2, parseInt(pEl.value, 10) || 8);
+  const c = Math.max(2, parseInt(colsEl.value, 10) || 12);
+  const r = Math.max(2, parseInt(rowsEl.value, 10) || 7);
+  const m = parseInt(mEl.value, 10) || 160;
+  const per = perimeter(c, r);
+  const k = Math.min(pNum, per.length);
+  const pinIdx = [];
+  for (let j = 0; j < k; j++) pinIdx.push(per[Math.floor((j * per.length) / k)]);
+  let optimal = 0, worst = 0, sumGap = 0, sumHk = 0, sumFi = 0, n = 0;
+  for (let t = 0; t < trials; t++) {
+    const sh = core.buildSheet(c, r, m, Math.random, 1.0, 1.2, pinIdx);
+    const pinSet = new Set(pinIdx);
+    const pins = sh.P.map((_, i) => pinSet.has(i));
+    const g = core.createNet(sh.P, pins, sh.edges, sh.L, KAPPA, G);
+    const act0 = core.activeSet(g);
+    const D = core.pinDistancesT(core.shortestTrees(g, act0, pinIdx), pinIdx);
+    const cmp = compareTours(D);
+    n++;
+    if (cmp.gap === null) continue;
+    sumGap += cmp.gap;
+    worst = Math.max(worst, cmp.gap);
+    if (cmp.gap < 1e-9) optimal++;
+    sumHk += cmp.hk.ms;
+    sumFi += cmp.fi.ms;
+  }
+  const box = document.getElementById('cmpbox');
+  box.innerHTML = `<div class="head">so sánh ${n} lưới (${k} ghim)</div>` +
+    `<table class="cmp"><tr><th>chỉ số</th><th>giá trị</th></tr>` +
+    `<tr><td>chèn xa nhất = tối ưu</td><td>${optimal}/${n}</td></tr>` +
+    `<tr><td>lệch trung bình</td><td>+${(sumGap / n).toFixed(3)}%</td></tr>` +
+    `<tr><td>lệch tệ nhất</td><td>+${worst.toFixed(3)}%</td></tr>` +
+    `<tr><td>thời gian Held–Karp TB</td><td>${(sumHk / n).toFixed(2)} ms</td></tr>` +
+    `<tr><td>thời gian chèn xa nhất TB</td><td>${(sumFi / n).toFixed(3)} ms</td></tr></table>`;
+}
+document.getElementById('cmp').addEventListener('click', () => compareBatch(30));
+
 const SWEEPS_PER_FRAME = 40;
 let frameNo = 0;
 function frame(now) {
@@ -435,13 +536,20 @@ function frame(now) {
   if (net && solver && solver.done && autoTourPending && pinCount() >= 3) startTourAnim(now);
   if (tourAnim && now >= tourAnim.nextT) {
     const st = tourAnim.stages[tourAnim.i];
-    tourState = st;
+    if (st.pending) {
+      tourState = null;
+      phaseMsg = st.title;
+    } else {
+      tourState = st;
+      phaseMsg = null;
+    }
     tourAnim.i++;
     if (tourAnim.i >= tourAnim.stages.length) tourAnim = null;
     else tourAnim.nextT = now + STAGE_MS;
   }
-  if (tourState !== renderedTour) {
+  if (tourState !== renderedTour || phaseMsg !== renderedPhase) {
     renderedTour = tourState;
+    renderedPhase = phaseMsg;
     renderTourList();
   }
   draw();

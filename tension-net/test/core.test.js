@@ -208,4 +208,37 @@ test('loại node thừa trước cân bằng: chu trình và độ dài không 
   assert.ok(Math.abs(core.farthestInsertionTour(D1).length - 4) < 1e-9);
 });
 
+test('Held–Karp = brute-force tối ưu trên 7 điểm ngẫu nhiên; bestTour dùng nghiệm đúng', () => {
+  let seed = 21;
+  const rand = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x80000000);
+  const m = 7;
+  const P = Array.from({ length: m }, () => [rand() * 10, 0, rand() * 10]);
+  const D = P.map((a) => P.map((b) => Math.hypot(a[0] - b[0], a[2] - b[2])));
+  let opt = Infinity;
+  const perm = (arr, k) => {
+    if (k === arr.length) {
+      const tour = [0, ...arr];
+      let len = 0;
+      for (let i = 0; i < tour.length; i++) len += D[tour[i]][tour[(i + 1) % tour.length]];
+      opt = Math.min(opt, len);
+      return;
+    }
+    for (let i = k; i < arr.length; i++) {
+      [arr[k], arr[i]] = [arr[i], arr[k]];
+      perm(arr, k + 1);
+      [arr[k], arr[i]] = [arr[i], arr[k]];
+    }
+  };
+  perm([1, 2, 3, 4, 5, 6], 0);
+  const hk = core.heldKarpTour(D);
+  assert.ok(Math.abs(hk.length - opt) < 1e-9, `HK ${hk.length} ≠ brute ${opt}`);
+  let len = 0;
+  for (let i = 0; i < m; i++) len += D[hk.order[i]][hk.order[(i + 1) % m]];
+  assert.ok(Math.abs(len - opt) < 1e-9, 'thứ tự trả về phải đạt độ dài tối ưu');
+  assert.strictEqual(new Set(hk.order).size, m);
+  const b = core.bestTour(D);
+  assert.strictEqual(b.exact, true);
+  assert.ok(Math.abs(b.length - opt) < 1e-9);
+});
+
 console.log(`\n${passed} test(s) passed`);

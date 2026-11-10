@@ -35,6 +35,16 @@
   #tourlist .seg { padding: 4px 6px; border-radius: 4px; cursor: default; }
   #tourlist .seg:hover { background: #1f2630; color: #ffffff; }
   #tourlist .nodes { color: #8b95a5; word-break: break-word; }
+  #cmpbox {
+    position: fixed; bottom: 14px; right: 14px; width: 330px; max-height: 40vh; overflow: auto;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #c3ccd8;
+    background: rgba(11,13,16,0.85); border: 1px solid #2c343f; border-radius: 6px; padding: 8px 10px;
+  }
+  #cmpbox:empty { display: none; }
+  #cmpbox .head { color: #ffd79f; margin-bottom: 6px; }
+  table.cmp { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  table.cmp th, table.cmp td { text-align: left; padding: 2px 4px; border-bottom: 1px solid #1f2630; }
+  table.cmp td.ord { color: #8b95a5; word-break: break-word; }
   #tourlist .done { margin-top: 8px; padding-top: 6px; border-top: 1px solid #2c343f; color: #9be38a; }
 </style>
 </head>
@@ -47,9 +57,11 @@
     ghim <input id="p" type="number" min="2" max="64" value="8">
     <button id="gen">Tạo lưới</button>
     <button id="view">Đặt lại góc nhìn</button>
-    <button id="tour">Chu trình</button></div>
+    <button id="tour">Chu trình</button>
+    <button id="cmp">So sánh 30 lưới</button></div>
   <div id="info"></div>
   <div id="tourlist"></div>
+  <div id="cmpbox"></div>
 <div id="hint">Trần là mặt phẳng y = 0 chứa các ghim (màu cam). Trọng lực kéo phần còn lại xuống.
     Kéo nền để xoay, cuộn để zoom, click node để ghim/bỏ ghim, kéo node để đổi vị trí ghim trên mặt phẳng của nó.
     Node ở nửa dưới sau khi cân bằng được làm mờ; sợi càng căng càng đỏ.</div>
