@@ -9,13 +9,13 @@ const moreBtn = document.getElementById("more");
 const linkModeBtn = document.getElementById("linkmode");
 const linkHintEl = document.getElementById("link-hint");
 const netBtn = document.getElementById("net");
-const chainBtn = document.getElementById("chain");
 const pinModeBtn = document.getElementById("pinmode");
 const clearPinsBtn = document.getElementById("clearpins");
 const netNEl = document.getElementById("net-n");
 const netEEl = document.getElementById("net-e");
 const netPEl = document.getElementById("net-p");
 const settleBtn = document.getElementById("settle");
+const relaxBtn = document.getElementById("relax");
 const arrangeBtn = document.getElementById("arrange");
 const pathInfoEl = document.getElementById("path-info");
 
@@ -49,6 +49,9 @@ let trail = [];
 let view = { pivotX: 0, pivotY: 0, ppm: 100, w: 0, h: 0 };
 
 function setStructure(home, edges, pinned) {
+  relaxing = true;
+  relaxSweepsDone = 0;
+  relaxStep = RELAX_STEP;
   N = home.length;
   HX = home.map((p) => p.x);
   HY = home.map((p) => p.y);
@@ -65,14 +68,6 @@ function setStructure(home, edges, pinned) {
   trail = [];
   updateScale();
   updateLinkControls();
-}
-
-function chainStructure() {
-  setStructure(
-    [{ x: 0, y: 1 }, { x: 0, y: 2 }, { x: 0, y: 3 }],
-    [{ a: -1, b: 0, L: 1 }, { a: 0, b: 1, L: 1 }, { a: 1, b: 2, L: 1 }],
-    [false, false, false]
-  );
 }
 
 // Lưới ngẫu nhiên gồm nNodes node xếp theo lưới gần vuông (cách nhau 1 m).
@@ -501,25 +496,32 @@ function bfsEdgePath(s, t, adj) {
   return out;
 }
 
-// Đường đi ngắn nhất qua tất cả điểm ghim theo thứ tự chỉ số: nối lần lượt từng cặp
-// điểm ghim liền kề bằng đường ít rod nhất.
+// Đường nối các điểm ghim theo thứ tự chỉ số, chỉ đi qua các sợi căng (đang chịu lực kéo)
+// ở cấu hình hiện tại. Đây là đường do trọng lực tạo ra. Mỗi đoạn là đường ít sợi nhất
+// trong các sợi căng (BFS).
 function shortestPinPath() {
   const pins = [];
   for (let i = 0; i < N; i++) if (PIN[i]) pins.push(i);
   if (pins.length < 2) return { edges: new Set(), msg: "cần ít nhất 2 điểm ghim" };
   const adj = Array.from({ length: N }, () => []);
   EDGES.forEach((e, k) => {
-    if (e.a >= 0 && e.b >= 0) {
-      adj[e.a].push([e.b, k]);
-      adj[e.b].push([e.a, k]);
-    }
+    if (e.a < 0 && e.b < 0) return;
+    const ax = e.a < 0 ? 0 : X[e.a], ay = e.a < 0 ? 0 : Y[e.a];
+    const bx = e.b < 0 ? 0 : X[e.b], by = e.b < 0 ? 0 : Y[e.b];
+    const taut = Math.hypot(bx - ax, by - ay) >= e.L - 1e-6;
+    if (!taut || e.a < 0 || e.b < 0) return;
+    adj[e.a].push([e.b, k]);
+    adj[e.b].push([e.a, k]);
   });
   const edges = new Set();
   const counts = [];
   for (let i = 0; i + 1 < pins.length; i++) {
     const seg = bfsEdgePath(pins[i], pins[i + 1], adj);
     if (!seg) {
-      return { edges, msg: `node ${pins[i] + 1} và ${pins[i + 1] + 1} không nối được bằng rod` };
+      return {
+        edges,
+        msg: `node ${pins[i] + 1} và ${pins[i + 1] + 1} chưa được nối bằng chuỗi sợi căng (trọng lực chưa kéo căng)`,
+      };
     }
     seg.forEach((k) => edges.add(k));
     counts.push(seg.length);
@@ -528,7 +530,7 @@ function shortestPinPath() {
   edges.forEach((k) => (total += EDGES[k].L));
   return {
     edges,
-    msg: `đường ngắn nhất qua ${pins.length} điểm ghim: ${counts.join(" + ")} = ${edges.size} rod, tổng chiều dài ${total.toFixed(2)} m`,
+    msg: `đường sợi căng do trọng lực qua ${pins.length} điểm ghim: ${counts.join(" + ")} = ${edges.size} sợi, tổng chiều dài ${total.toFixed(2)} m`,
   };
 }
 
@@ -655,6 +657,76 @@ function draw() {
   }`;
 }
 
+// ---- Cân bằng tĩnh ----
+// Tìm cấu hình có thế năng trọng lực nhỏ nhất thỏa các sợi. Không dùng vận tốc, quán tính
+// hay ma sát: mỗi vòng hạ các node tự do theo trọng lực (gradient của U = −G·Σy),
+// rồi chiếu các sợi đang căng về đúng chiều dài. Dừng khi cấu hình không còn thay đổi.
+const RELAX_STEP = 0.0005; // bước hạ ban đầu theo trọng lực (m mỗi vòng)
+const RELAX_STEP_MIN = 1e-6;
+const RELAX_STEP_MAX = 0.005;
+const RELAX_PROJ = 200; // số vòng SHAKE mỗi bước cân bằng
+const RELAX_TOL = 1e-9; // ngưỡng: cấu hình không đổi (m) mỗi vòng
+const RELAX_STRETCH = 1e-8; // ngưỡng: độ giãn sợi còn lại (m)
+const RELAX_SWEEPS_PER_FRAME = 20;
+const RELAX_MAX_SWEEPS = 6000; // dừng sau số vòng này nếu chưa hội tụ
+let relaxing = true; // cân bằng là chế độ mặc định
+let relaxSweepsDone = 0;
+
+// Thế năng trọng lực hiện tại: U = −G·Σy (y hướng xuống, U nhỏ hơn = thấp hơn).
+function potentialU() {
+  let u = 0;
+  for (let i = 0; i < N; i++) u -= G * Y[i];
+  return u;
+}
+
+// Một vòng cân bằng: hạ node tự do theo trọng lực, rồi chiếu các sợi căng về đúng chiều dài.
+// Bước hạ thích nghi: nếu U không giảm thì bỏ bước và chia đôi bước; nếu giảm thì tăng bước nhẹ.
+// Trả về {change, worst}: độ thay đổi lớn nhất của node và độ giãn sợi còn lại.
+let relaxStep = RELAX_STEP;
+function relaxSweep() {
+  const x0 = X.slice(), y0 = Y.slice();
+  const U0 = potentialU();
+  const xs = X.slice(), ys = Y.slice();
+  for (let i = 0; i < N; i++) {
+    if (!isFixed(i)) ys[i] += relaxStep * G;
+  }
+  shake(xs, ys, activeEdges(), RELAX_PROJ);
+  X = xs;
+  Y = ys;
+  if (potentialU() > U0 + 1e-12 && relaxStep > RELAX_STEP_MIN) {
+    // bước làm năng lượng tăng: quay lại và thử bước nhỏ hơn
+    X = x0;
+    Y = y0;
+    relaxStep = Math.max(RELAX_STEP_MIN, relaxStep / 2);
+    for (let i = 0; i < N; i++) { VX[i] = 0; VY[i] = 0; }
+    return { change: 1, worst: 1 };
+  }
+  relaxStep = Math.min(RELAX_STEP_MAX, relaxStep * 1.05);
+  let change = 0;
+  for (let i = 0; i < N; i++) {
+    change = Math.max(change, Math.abs(X[i] - x0[i]), Math.abs(Y[i] - y0[i]));
+    VX[i] = 0;
+    VY[i] = 0;
+  }
+  let worst = 0;
+  for (const e of EDGES) {
+    const ax = e.a < 0 ? 0 : X[e.a], ay = e.a < 0 ? 0 : Y[e.a];
+    const bx = e.b < 0 ? 0 : X[e.b], by = e.b < 0 ? 0 : Y[e.b];
+    worst = Math.max(worst, Math.hypot(bx - ax, by - ay) - e.L);
+  }
+  return { change, worst };
+}
+
+// Chạy vòng cân bằng cho tới khi cấu hình không đổi và các sợi đều đúng, hoặc đạt maxSweeps.
+function relaxToEquilibrium(maxSweeps = 200000) {
+  let k = 0;
+  for (; k < maxSweeps; k++) {
+    const r = relaxSweep();
+    if (r.change < RELAX_TOL && r.worst < RELAX_STRETCH) break;
+  }
+  return k;
+}
+
 // ---- Vòng lặp chính ----
 
 let last = performance.now();
@@ -665,7 +737,21 @@ function frame(now) {
   last = now;
   if (dtReal > 0.05) dtReal = 0.05;
 
-  if (!paused) {
+  if (relaxing) {
+    let r = { change: 1, worst: 1 };
+    for (let s = 0; s < RELAX_SWEEPS_PER_FRAME; s++) r = relaxSweep();
+    relaxSweepsDone += RELAX_SWEEPS_PER_FRAME;
+    acc = 0;
+    if (r.change < RELAX_TOL && r.worst < RELAX_STRETCH) {
+      relaxing = false;
+      message = "đã cân bằng";
+      updateLinkControls();
+    } else if (relaxSweepsDone >= RELAX_MAX_SWEEPS) {
+      relaxing = false;
+      message = "dừng cân bằng (chưa hội tụ); bấm Cân bằng để tiếp tục";
+      updateLinkControls();
+    }
+  } else if (!paused) {
     acc += dtReal;
     let steps = 0;
     while (acc >= DT && steps < 3000) {
@@ -854,6 +940,7 @@ function localPoint(ev) {
 
 canvas.addEventListener("pointerdown", (ev) => {
   const p = localPoint(ev);
+  relaxing = false;
   if (linkMode) {
     handleLinkClick(p);
     return;
@@ -925,6 +1012,12 @@ frictionBase = parseFloat(frictionEl.value) || 0;
 frictionValEl.textContent = frictionBase.toFixed(2);
 
 arrangeBtn.addEventListener("click", arrangePins);
+relaxBtn.addEventListener("click", () => {
+  relaxing = true;
+  relaxSweepsDone = 0;
+  message = "đang cân bằng...";
+  updateLinkControls();
+});
 settleBtn.addEventListener("click", () => {
   frictionEl.value = "5";
   frictionBase = 5;
@@ -938,10 +1031,9 @@ clearPinsBtn.addEventListener("click", clearPins);
 netBtn.addEventListener("click", () =>
   netStructure(parseInt(netNEl.value, 10), parseInt(netEEl.value, 10), parseInt(netPEl.value, 10))
 );
-chainBtn.addEventListener("click", chainStructure);
 
 window.addEventListener("resize", resize);
 
-chainStructure();
+netStructure(20, 26, 2); // lưới ngẫu nhiên mặc định khi mở trang
 resize();
 requestAnimationFrame(frame);
