@@ -19,6 +19,10 @@ const pathInfoEl = document.getElementById("path-info");
 const G = 9.81;
 const PICK_RADIUS = 28;
 const MAX_NET_NODES = 200;
+// hệ số nhỏ nhất/lớn nhất so với khoảng cách lưới khi tạo sợi ngẫu nhiên.
+// Với khoảng rộng hơn (vd 0.6–1.4) bộ giải SHAKE phân kỳ khi cân bằng.
+const ROD_LEN_MIN = 0.75;
+const ROD_LEN_MAX = 1.25;
 
 // Mô hình: mỗi node là một quả nặng (khối lượng 1) với vị trí (X, Y) tính bằng mét,
 // trục y hướng xuống. Các rod là ràng buộc khoảng cách: |p_a - p_b| = L (sợi chỉ chỉ chống kéo).
@@ -159,7 +163,12 @@ function netStructure(nNodes, nEdges, nPins) {
     }
   }
   const chosen = tree.concat(rest.slice(0, nEdges - tree.length));
-  const edges = chosen.map(([a, b]) => ({ a, b, L: len([a, b]) }));
+  // mỗi sợi có chiều dài riêng: khoảng cách lưới nhân với hệ số ngẫu nhiên trong [ROD_LEN_MIN, ROD_LEN_MAX]
+  const edges = chosen.map(([a, b]) => ({
+    a,
+    b,
+    L: len([a, b]) * (ROD_LEN_MIN + Math.random() * (ROD_LEN_MAX - ROD_LEN_MIN)),
+  }));
 
   setStructure(home, edges, pinned);
   // mặc định xếp các ghim thành một hàng ngang, rồi kéo ra xa khi hệ đã cân bằng
