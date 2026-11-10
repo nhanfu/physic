@@ -213,18 +213,12 @@ canvas.addEventListener('dblclick', () => resetView());
 document.getElementById('gen').addEventListener('click', generate);
 
 // các đoạn của chu trình: với mỗi cặp ghim liền kề, đường ngắn nhất (theo sợi) giữa chúng
-function tourSegments(order) {
+function tourSegments(order, trees) {
   const segs = [];
   const m = order.length;
   for (let p = 0; p < m; p++) {
     const s0 = order[p], t0 = order[(p + 1) % m];
-    const { prev } = core.dijkstra(net, act, s0);
-    const nodes = [];
-    for (let c = t0; c >= 0; c = prev[c]) {
-      nodes.push(c);
-      if (c === s0) break;
-    }
-    nodes.reverse();
+    const nodes = core.pathNodes(trees, s0, t0);
     const edges = new Set();
     let len = 0;
     for (let q = 1; q < nodes.length; q++) {
@@ -241,7 +235,8 @@ function buildTourStages() {
   const pinIdx = [];
   for (let i = 0; i < net.N; i++) if (net.pin[i]) pinIdx.push(i);
   if (pinIdx.length < 3) return null;
-  const D = core.pinDistances(net, act, pinIdx);
+  const trees = core.shortestTrees(net, act, pinIdx);
+  const D = core.pinDistancesT(trees, pinIdx);
   const t = core.farthestInsertionTour(D);
   const cycleLen = (snap) => {
     let len = 0;
@@ -251,7 +246,7 @@ function buildTourStages() {
   const snaps = t.snapshots.slice(1).concat([t.order]);
   return snaps.map((snap, si) => {
     const order = snap.map((k) => pinIdx[k]);
-    const segments = tourSegments(order);
+    const segments = tourSegments(order, trees);
     const edges = new Set();
     const nodes = new Set();
     segments.forEach((sg) => {
@@ -261,7 +256,7 @@ function buildTourStages() {
     return {
       order,
       final: si === snaps.length - 1,
-      used: core.usedNodes(net, act, order),
+      used: core.usedNodesT(net, trees, order),
       segments,
       edges,
       nodes,

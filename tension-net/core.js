@@ -168,12 +168,16 @@
     return [x, y, z];
   }
 
-  function sweep(net, act) {
+  // omega: hệ số nới lỏng (SOR). omega = 1 là Gauss–Seidel thuần.
+  function sweep(net, act, omega = 1) {
     const { X, Y, Z, pin, N } = net;
     let maxMove = 0;
     for (let i = 0; i < N; i++) {
       if (pin[i] || !act.alive[i] || act.nbE[i].length === 0) continue;
-      const [x, y, z] = relaxNode(net, act, i);
+      const [rx, ry, rz] = relaxNode(net, act, i);
+      const x = X[i] + omega * (rx - X[i]);
+      const y = Y[i] + omega * (ry - Y[i]);
+      const z = Z[i] + omega * (rz - Z[i]);
       maxMove = Math.max(maxMove, Math.abs(x - X[i]), Math.abs(y - Y[i]), Math.abs(z - Z[i]));
       X[i] = x; Y[i] = y; Z[i] = z;
     }
@@ -185,6 +189,9 @@
       this.net = net;
       this.act = act;
       this.tol = opts.tol || 1e-8;
+      // SOR: ω = 1.6 nhanh nhất trên lưới cỡ vừa, nhưng mất ổn định ở 1536 node;
+      // lưới lớn dùng ω = 1.3 (đo: hội tụ ở 1536 và 3072 node, còn ω = 1 chậm hơn ~1.7–1.9 lần).
+      this.omega = opts.omega || (net.N <= 1000 ? 1.6 : 1.3);
       this.maxSweeps = opts.maxSweeps || 20000;
       this.sweeps = 0;
       this.lastMove = Infinity;
@@ -194,7 +201,7 @@
     step(budget) {
       let used = 0;
       while (!this.done && used < budget) {
-        this.lastMove = sweep(this.net, this.act);
+        this.lastMove = sweep(this.net, this.act, this.omega);
         used++;
         this.sweeps++;
         if (this.lastMove < this.tol || this.sweeps >= this.maxSweeps) this.done = true;
@@ -295,16 +302,46 @@
     const N = net.N;
     const dist = new Float64Array(N).fill(Infinity);
     const prev = new Int32Array(N).fill(-1);
-    const done = new Uint8Array(N);
+    // heap nhị phân (lazy): các cặp [khoảng cách, node]
+    const hd = [], hv = [];
+    const push = (d, v) => {
+      let i = hd.length;
+      hd.push(d); hv.push(v);
+      while (i > 0) {
+        const p = (i - 1) >> 1;
+        if (hd[p] <= hd[i]) break;
+        [hd[p], hd[i]] = [hd[i], hd[p]];
+        [hv[p], hv[i]] = [hv[i], hv[p]];
+        i = p;
+      }
+    };
+    const pop = () => {
+      const d = hd[0], v = hv[0];
+      const ld = hd.pop(), lv = hv.pop();
+      if (hd.length > 0) {
+        hd[0] = ld; hv[0] = lv;
+        let i = 0;
+        for (;;) {
+          const l = 2 * i + 1, r = l + 1;
+          let m = i;
+          if (l < hd.length && hd[l] < hd[m]) m = l;
+          if (r < hd.length && hd[r] < hd[m]) m = r;
+          if (m === i) break;
+          [hd[m], hd[i]] = [hd[i], hd[m]];
+          [hv[m], hv[i]] = [hv[i], hv[m]];
+          i = m;
+        }
+      }
+      return [d, v];
+    };
     dist[s] = 0;
-    for (;;) {
-      let u = -1;
-      for (let i = 0; i < N; i++) if (!done[i] && dist[i] < Infinity && (u < 0 || dist[i] < dist[u])) u = i;
-      if (u < 0) break;
-      done[u] = 1;
+    push(0, s);
+    while (hd.length) {
+      const [d, u] = pop();
+      if (d > dist[u]) continue;
       for (const [v, k] of act.nbE[u]) {
-        const nd = dist[u] + net.L[k];
-        if (nd < dist[v]) { dist[v] = nd; prev[v] = u; }
+        const nd = d + net.L[k];
+        if (nd < dist[v]) { dist[v] = nd; prev[v] = u; push(nd, v); }
       }
     }
     return { dist, prev };
@@ -375,7 +412,45 @@
     return used;
   }
 
+  // Cây đường đi ngắn nhất từ mỗi ghim, tính một lần rồi dùng lại cho khoảng cách, đoạn
+  // đường và node thừa. Trả về Map: chỉ số node ghim → {dist, prev}.
+  function shortestTrees(net, act, pinIdx) {
+    const trees = new Map();
+    for (const s of pinIdx) if (!trees.has(s)) trees.set(s, dijkstra(net, act, s));
+    return trees;
+  }
+
+  // Ma trận khoảng cách giữa các ghim từ các cây đã tính.
+  function pinDistancesT(trees, pinIdx) {
+    return pinIdx.map((a) => pinIdx.map((b) => trees.get(a).dist[b]));
+  }
+
+  // Dãy node từ s đến t trên cây đường đi của s (rỗng nếu không tới được).
+  function pathNodes(trees, s, t) {
+    const { dist, prev } = trees.get(s);
+    if (dist[t] === Infinity) return [];
+    const out = [];
+    for (let c = t; c >= 0; c = prev[c]) {
+      out.push(c);
+      if (c === s) break;
+    }
+    return out.reverse();
+  }
+
+  // Node thừa: các node nằm trên đường giữa hai ghim liền kề trong chu trình.
+  function usedNodesT(net, trees, pinOrder) {
+    const used = new Uint8Array(net.N);
+    const m = pinOrder.length;
+    for (let p = 0; p < m; p++) {
+      const s = pinOrder[p], t = pinOrder[(p + 1) % m];
+      if (s === t) { used[s] = 1; continue; }
+      for (const c of pathNodes(trees, s, t)) used[c] = 1;
+    }
+    return used;
+  }
+
   const api = {
+    shortestTrees, pinDistancesT, pathNodes, usedNodesT,
     createNet, activeSet, energy, sweep, Solver, diagnostics, buildSheet,
     dijkstra, pinDistances, farthestInsertionTour, usedNodes,
   };
