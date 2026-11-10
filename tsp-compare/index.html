@@ -14,6 +14,9 @@
     color: #8b95a5; user-select: none;
   }
   #hud b { color: #d7dee8; font-weight: 600; }
+  #hud select {
+    font: inherit; color: #d7dee8; background: #12161b; border: 1px solid #2c343f; border-radius: 4px; padding: 0 4px; max-width: 320px;
+  }
   #hud input {
     font: inherit; width: 56px; color: #d7dee8; background: #12161b;
     border: 1px solid #2c343f; border-radius: 4px; padding: 0 4px;
@@ -43,6 +46,7 @@
 <canvas id="c"></canvas>
 <div id="hud">
   <div><b>điểm</b> <input id="n" type="number" min="3" max="60" value="8">
+    <select id="case"></select>
     <button id="rand">Ngẫu nhiên</button>
     <button id="clear">Xóa hết</button>
     <button id="cmp">So sánh</button>
@@ -54,6 +58,7 @@
 </div>
 <div id="panel"></div>
 <script src="core.js"></script>
+<script src="cases.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -15,6 +15,19 @@ let points = [];             // [x, y] trong hệ thế giới
 let solution = null;         // {hk, fi, gap, D}
 let timing = null;           // kết quả đo thời gian gần nhất (nếu có)
 let view = { w: 0, h: 0, scale: 1, ox: 0, oy: 0 };
+let currentCase = null;      // test case đang chọn (nếu có), dùng để hiện độ dài kỳ vọng
+
+// danh sách test case trong ô chọn
+const caseSel = document.getElementById('case');
+const CASES = tspCases.CASES;
+caseSel.innerHTML = '<option value="">— chọn test case —</option>' +
+  CASES.map((c) => `<option value="${c.id}">${c.name} (${c.points.length})</option>`).join('');
+caseSel.addEventListener('change', () => {
+  const c = CASES.find((x) => x.id === caseSel.value);
+  if (!c) return;
+  currentCase = c;
+  setPoints(c.points.map((p) => [p[0], p[1]]));
+});
 
 function resize() {
   const dpr = window.devicePixelRatio || 1;
@@ -54,6 +67,8 @@ function solve() {
 
 function setPoints(list) {
   points = list;
+  // điểm đã đổi (kéo, thêm, xóa) thì không còn là test case đã chọn
+  if (currentCase && JSON.stringify(currentCase.points) !== JSON.stringify(list)) currentCase = null;
   timing = null;
   solve();
   draw();
@@ -106,7 +121,9 @@ function updateInfo() {
     ? `Held–Karp ${solution.hk.length.toFixed(3)}`
     : 'Held–Karp: không áp dụng (>12 điểm)';
   const gap = solution.gap === null ? '' : ` · chèn xa nhất lệch +${solution.gap.toFixed(2)}%`;
-  infoEl.textContent = `${points.length} điểm · ${hk} · chèn xa nhất ${solution.fi.length.toFixed(3)}${gap}`;
+  const exp = currentCase && currentCase.expected !== undefined && JSON.stringify(currentCase.points) === JSON.stringify(points)
+    ? ` · kỳ vọng ${currentCase.expected.toFixed(3)}` : '';
+  infoEl.textContent = `${points.length} điểm · ${hk} · chèn xa nhất ${solution.fi.length.toFixed(3)}${gap}${exp}`;
 }
 
 function fmtOrder(order) {

@@ -81,4 +81,42 @@ test('compare: có Held–Karp với 3–12 điểm, không có với 13 điểm
   assert.strictEqual(big.gap, null);
 });
 
+// ---- toàn bộ test case ----
+const cases = require('../cases.js').CASES;
+
+function twoOptOptimal(D, order) {
+  // điều kiện cần của tối ưu: không có phép 2-opt nào làm chu trình ngắn hơn
+  const m = order.length;
+  for (let i = 0; i < m - 1; i++) {
+    for (let j = i + 2; j < m; j++) {
+      if (i === 0 && j === m - 1) continue;
+      const a = order[i], b = order[i + 1], c = order[j], d = order[(j + 1) % m];
+      if (D[a][c] + D[b][d] < D[a][b] + D[c][d] - 1e-9) return false;
+    }
+  }
+  return true;
+}
+
+for (const cs of cases) {
+  test(`case "${cs.id}": ${cs.name}`, () => {
+    const P = cs.points;
+    const n = P.length;
+    const D = core.distanceMatrix(P);
+    const fi = core.farthestInsertionTour(D);
+    assert.ok(isPermutation(fi.order, n), 'chèn xa nhất phải trả về hoán vị hợp lệ');
+    assert.ok(Math.abs(core.tourLength(D, fi.order) - fi.length) < 1e-6);
+    if (n > 12) return; // chỉ kiểm tra xấp xỉ
+    const hk = core.heldKarpTour(D);
+    assert.ok(isPermutation(hk.order, n));
+    assert.ok(Math.abs(core.tourLength(D, hk.order) - hk.length) < 1e-6);
+    assert.ok(twoOptOptimal(D, hk.order), 'Held–Karp phải không thể cải thiện bằng 2-opt');
+    assert.ok(fi.length >= hk.length - 1e-6, 'chèn xa nhất không được ngắn hơn tối ưu');
+    assert.ok(fi.length <= 2 * hk.length + 1e-6, 'chèn xa nhất không được quá 2 lần tối ưu');
+    if (n <= 9) assert.ok(Math.abs(hk.length - bruteForce(D)) < 1e-6, 'phải khớp brute-force');
+    if (cs.expected !== undefined) {
+      assert.ok(Math.abs(hk.length - cs.expected) < 1e-6 * Math.max(1, cs.expected), `HK ${hk.length} ≠ ${cs.expected}`);
+    }
+  });
+}
+
 console.log(`\n${passed} test(s) passed`);
