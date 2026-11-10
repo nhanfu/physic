@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Tension Net</title>
+<title>Tension Net 3D</title>
 <style>
   html, body { margin: 0; height: 100%; background: #0b0d10; overflow: hidden; }
   canvas { display: block; touch-action: none; cursor: grab; }
@@ -15,7 +15,7 @@
   }
   #hud b { color: #d7dee8; font-weight: 600; }
   #hud input {
-    font: inherit; width: 56px; color: #d7dee8; background: #12161b;
+    font: inherit; width: 52px; color: #d7dee8; background: #12161b;
     border: 1px solid #2c343f; border-radius: 4px; padding: 0 4px;
   }
   #hud button {
@@ -24,20 +24,24 @@
   }
   #row { margin-top: 6px; }
   #info { color: #ffd79f; margin-top: 6px; }
-  #hint { color: #8b95a5; margin-top: 4px; max-width: 520px; white-space: normal; }
+  #hint { color: #8b95a5; margin-top: 4px; max-width: 560px; white-space: normal; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="hud">
-  <div><b>lưới</b> node <input id="n" type="number" min="2" max="200" value="40">
-    sợi <input id="m" type="number" min="1" max="400" value="52">
-    ghim <input id="p" type="number" min="2" max="200" value="4">
-    <button id="gen">Tạo lưới</button></div>
-  <div id="row"><button id="pull">Kéo giãn ghim ×1.2</button>
-    <button id="view">Về khung mặc định</button></div>
+  <div><b>lưới</b> cột <input id="cols" type="number" min="2" max="30" value="12">
+    hàng <input id="rows" type="number" min="2" max="30" value="7">
+    sợi <input id="m" type="number" min="1" max="600" value="160">
+    ghim <input id="p" type="number" min="2" max="64" value="8">
+    <button id="gen">Tạo lưới</button>
+    <button id="view">Đặt lại góc nhìn</button>
+    <button id="max">Kéo tối đa</button>
+    <button id="tour">Chu trình</button></div>
   <div id="info"></div>
-  <div id="hint">Kéo nút để đặt ghim tại vị trí mới. Click nút để ghim/bỏ ghim. Kéo nền để di chuyển, cuộn chuột để zoom.</div>
+  <div id="hint">Trần là mặt phẳng y = 0 chứa các ghim (màu cam). Trọng lực kéo phần còn lại xuống.
+    Kéo nền để xoay, cuộn để zoom, click node để ghim/bỏ ghim, kéo node để đổi vị trí ghim trên mặt phẳng của nó.
+    Node ở nửa dưới sau khi cân bằng được làm mờ; sợi càng căng càng đỏ.</div>
 </div>
 <script src="core.js"></script>
 <script src="app.js"></script>
