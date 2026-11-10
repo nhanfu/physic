@@ -13,6 +13,7 @@ const netEEl = document.getElementById("net-e");
 const netPEl = document.getElementById("net-p");
 const relaxBtn = document.getElementById("relax");
 const arrangeBtn = document.getElementById("arrange");
+const spreadBtn = document.getElementById("spread");
 const pathInfoEl = document.getElementById("path-info");
 
 const G = 9.81;
@@ -70,6 +71,7 @@ function setStructure(home, edges, pinned) {
 
 // Bắt đầu (hoặc chạy lại) vòng cân bằng. msg = null thì giữ nguyên thông báo hiện tại.
 function startRelax(msg) {
+  spreading = false; // thay đổi cấu trúc thì hủy việc kéo ghim đang chạy
   relaxing = true;
   relaxSweepsDone = 0;
   relaxStep = RELAX_STEP;
@@ -108,23 +110,31 @@ function netStructure(nNodes, nEdges, nPins) {
   const len = ([a, b]) => Math.hypot(home[b].x - home[a].x, home[b].y - home[a].y);
   nEdges = Math.max(nNodes - 1, Math.min(cand.length, Math.floor(nEdges) || 0));
 
-  // ghim ngẫu nhiên, không chọn node liền kề với node đã ghim
+  // ghim: nếu đủ chỗ thì đặt trên hàng đầu của lưới, cách đều và trải hết chiều rộng lưới
+  // (để kéo ra xa được nhiều nhất); nếu không thì chọn ngẫu nhiên, không liền kề nhau.
   const want = Math.max(0, Math.min(nNodes, Math.floor(nPins) || 0));
-  const order = Array.from({ length: nNodes }, (_, i) => i);
-  for (let i = order.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [order[i], order[j]] = [order[j], order[i]];
-  }
   const pinned = new Array(nNodes).fill(false);
-  const blocked = new Array(nNodes).fill(false);
   let pinCount = 0;
-  for (const i of order) {
-    if (pinCount >= want) break;
-    if (blocked[i]) continue;
-    pinned[i] = true;
-    pinCount++;
-    blocked[i] = true;
-    for (const j of adj[i]) blocked[j] = true;
+  if (want >= 2 && want <= Math.ceil(cols / 2)) {
+    for (let j = 0; j < want; j++) {
+      pinned[Math.round((j * (cols - 1)) / (want - 1))] = true;
+      pinCount++;
+    }
+  } else {
+    const order = Array.from({ length: nNodes }, (_, i) => i);
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    const blocked = new Array(nNodes).fill(false);
+    for (const i of order) {
+      if (pinCount >= want) break;
+      if (blocked[i]) continue;
+      pinned[i] = true;
+      pinCount++;
+      blocked[i] = true;
+      for (const j of adj[i]) blocked[j] = true;
+    }
   }
 
   for (let i = cand.length - 1; i > 0; i--) {
@@ -152,8 +162,9 @@ function netStructure(nNodes, nEdges, nPins) {
   const edges = chosen.map(([a, b]) => ({ a, b, L: len([a, b]) }));
 
   setStructure(home, edges, pinned);
-  // mặc định xếp các ghim thành một hàng ngang
+  // mặc định xếp các ghim thành một hàng ngang, rồi kéo ra xa khi hệ đã cân bằng
   if (pinCount > 0) arrangePins();
+  spreadPending = pinCount >= 2;
 
   netNEl.value = String(nNodes);
   netEEl.min = String(nNodes - 1);
@@ -177,13 +188,15 @@ const RELAX_STEP = 0.0005; // bước hạ ban đầu theo trọng lực (m mỗ
 const RELAX_STEP_MIN = 1e-6;
 const RELAX_STEP_MAX = 0.005;
 const RELAX_PROJ = 200; // số vòng SHAKE mỗi bước cân bằng
-const RELAX_TOL = 1e-9; // ngưỡng: cấu hình không đổi (m) mỗi vòng
-const RELAX_STRETCH = 1e-8; // ngưỡng: độ giãn sợi còn lại (m)
+const RELAX_TOL = 1e-6; // ngưỡng: cấu hình không đổi (m) mỗi vòng
+const RELAX_STRETCH = 1e-6; // ngưỡng: độ giãn sợi còn lại (m)
+const RELAX_ENERGY_TOL = 1e-6; // J: sai số chiếu SHAKE không được coi là năng lượng tăng
 const RELAX_SWEEPS_PER_FRAME = 20;
 const RELAX_MAX_SWEEPS = 6000; // dừng sau số vòng này nếu chưa hội tụ
 let relaxing = true;
 let relaxSweepsDone = 0;
 let relaxStep = RELAX_STEP;
+let spreadPending = false; // lưới vừa tạo: kéo ghim ra xa ngay khi cân bằng xong
 
 // Các ràng buộc có ít nhất một đầu tự do (ràng buộc giữa hai node cố định là hằng số).
 function activeEdges() {
@@ -334,7 +347,7 @@ function relaxSweep() {
   shake(xs, ys, activeEdges(), RELAX_PROJ);
   X = xs;
   Y = ys;
-  if (potentialU() > U0 + 1e-12 && relaxStep > RELAX_STEP_MIN) {
+  if (potentialU() > U0 + RELAX_ENERGY_TOL && relaxStep > RELAX_STEP_MIN) {
     // bước làm năng lượng tăng: quay lại và thử bước nhỏ hơn
     X = x0;
     Y = y0;
@@ -479,47 +492,139 @@ function shortestPinPath() {
 // Kéo các điểm ghim thành một hàng ngang (y = 0), cách đều nhau. Các ghim được di chuyển
 // dần qua nhiều bước, mỗi bước SHAKE lại để các node còn lại giữ đúng chiều dài rod.
 // Nếu không khả thi thì khôi phục trạng thái cũ.
-function arrangePins() {
+// Thử đặt các ghim thành hàng ngang y = 0 với khoảng cách spacing, dời dần qua nhiều bước
+// và SHAKE ở mỗi bước. Trả về {xs, ys} nếu mọi sợi đều không bị kéo quá dài, ngược lại null
+// (khi đó PX/PY được khôi phục như cũ).
+function layoutPins(spacing, STEPS = 60) {
   const pins = pinnedIndices();
   const k = pins.length;
+  const savePX = PX.slice(), savePY = PY.slice();
+  const start = pins.map((i) => ({ i, x0: X[i], y0: Y[i] }));
+  const target = pins.map((i, idx) => ({ x: (idx - (k - 1) / 2) * spacing, y: 0 }));
+  const xs = X.slice(), ys = Y.slice();
+  for (let st = 1; st <= STEPS; st++) {
+    const f = st / STEPS;
+    start.forEach((p, idx) => {
+      const i = p.i;
+      PX[i] = p.x0 + (target[idx].x - p.x0) * f;
+      PY[i] = p.y0 + (target[idx].y - p.y0) * f;
+      xs[i] = PX[i];
+      ys[i] = PY[i];
+    });
+    shake(xs, ys, activeEdges(), 30);
+  }
+  let viol = 0;
+  for (const e of EDGES) {
+    viol = Math.max(viol, edgeLength(e, xs, ys) - e.L); // sợi chỉ chỉ cấm kéo quá dài
+  }
+  if (viol < 1e-7) return { xs, ys };
+  PX = savePX;
+  PY = savePY;
+  return null;
+}
+
+// Xếp các ghim thành hàng: thử khoảng cách 1 m, rồi giảm dần nếu không khả thi.
+function arrangePins() {
+  const k = pinnedIndices().length;
   if (k === 0) {
     message = "chưa có điểm ghim để xếp";
     updateLinkControls();
     return;
   }
-  const savePX = PX.slice(), savePY = PY.slice();
-  const STEPS = 60;
+  // bắt đầu từ khoảng cách hiện tại của các ghim (không thu hẹp hàng đã trải rộng), giảm dần
+  const xsNow = pinnedIndices().map((i) => X[i]);
+  const s0 = (Math.max(...xsNow) - Math.min(...xsNow)) / Math.max(1, k - 1) || 1;
   for (let t = 0; t < 8; t++) {
-    const spacing = 1.0 / Math.pow(2, t);
-    const start = pins.map((i) => ({ i, x0: X[i], y0: Y[i] }));
-    const target = pins.map((i, idx) => ({ x: (idx - (k - 1) / 2) * spacing, y: 0 }));
-    const xs = X.slice(), ys = Y.slice();
-    for (let st = 1; st <= STEPS; st++) {
-      const f = st / STEPS;
-      start.forEach((p, idx) => {
-        const i = p.i;
-        PX[i] = p.x0 + (target[idx].x - p.x0) * f;
-        PY[i] = p.y0 + (target[idx].y - p.y0) * f;
-        xs[i] = PX[i];
-        ys[i] = PY[i];
-      });
-      shake(xs, ys, activeEdges(), 30);
-    }
-    let viol = 0;
-    for (const e of EDGES) {
-      viol = Math.max(viol, edgeLength(e, xs, ys) - e.L); // sợi chỉ chỉ cấm kéo quá dài
-    }
-    if (viol < 1e-7) {
-      X = xs;
-      Y = ys;
+    const spacing = s0 / Math.pow(2, t);
+    const res = layoutPins(spacing);
+    if (res) {
+      X = res.xs;
+      Y = res.ys;
       // các node tự do chưa ở cân bằng sau khi ghim đã dời: hạ lại theo trọng lực
       startRelax(`đã xếp ${k} điểm ghim thành hàng, cách nhau ${spacing.toFixed(3)} m`);
       return;
     }
   }
-  PX = savePX;
-  PY = savePY;
   message = "không xếp được các điểm ghim thành hàng với rod hiện tại (giữ nguyên trạng thái)";
+  updateLinkControls();
+}
+
+// Kéo các ghim ra xa nhau hết mức có thể (tìm khoảng cách lớn nhất khả thi bằng bisection),
+// rồi hạ lại theo trọng lực: đường sợi căng giữa các ghim hiện ra như đường ngắn nhất.
+// Chỉ chạy khi hệ đang ở trạng thái cân bằng.
+// Kéo ghim ra xa dần theo từng frame: khoảng cách hàng tăng thêm spreadD mỗi bước, chỉ
+// nhận bước nào mà mọi sợi vẫn không bị kéo quá dài. Khi một bước thất bại thì giảm bước
+// (chia đôi). Dừng khi bước quá nhỏ hoặc đạt SPREAD_MAX; khi đó hạ lại theo trọng lực.
+const SPREAD_MAX = 30; // m, giới hạn khoảng cách hàng ghim
+const SPREAD_STEPS_PER_FRAME = 4;
+const SPREAD_MIN_STEP = 1e-3;
+let spreading = false;
+let spreadSp = 0; // khoảng cách hiện tại giữa hai ghim liền kề (m)
+let spreadD = 0.02; // bước tăng hiện tại (m)
+
+// Thử đặt ghim thành hàng y = 0 với khoảng cách sp (không đổi trạng thái). Trả về trạng thái
+// mới nếu khả thi, ngược lại null.
+function trialRow(sp) {
+  const pins = pinnedIndices();
+  const k = pins.length;
+  const nPX = PX.slice(), nPY = PY.slice();
+  const xs = X.slice(), ys = Y.slice();
+  pins.forEach((i, idx) => {
+    nPX[i] = (idx - (k - 1) / 2) * sp;
+    nPY[i] = 0;
+    xs[i] = nPX[i];
+    ys[i] = 0;
+  });
+  shake(xs, ys, activeEdges(), 30);
+  let viol = 0;
+  for (const e of EDGES) {
+    viol = Math.max(viol, edgeLength(e, xs, ys) - e.L);
+  }
+  return viol < 1e-7 ? { xs, ys, PX: nPX, PY: nPY } : null;
+}
+
+function beginSpread() {
+  const pins = pinnedIndices();
+  if (pins.length < 2) {
+    message = "cần ít nhất 2 điểm ghim để kéo ra xa";
+    updateLinkControls();
+    return;
+  }
+  if (pins.some((i) => Math.abs(PY[i]) > 1e-9)) {
+    message = "xếp ghim thành hàng trước khi kéo ra xa";
+    updateLinkControls();
+    return;
+  }
+  const xsPins = pins.map((i) => PX[i]);
+  spreadSp = (Math.max(...xsPins) - Math.min(...xsPins)) / (pins.length - 1);
+  spreadD = 0.02;
+  spreading = true;
+  relaxing = false;
+  message = "đang kéo ghim ra xa...";
+  updateLinkControls();
+}
+
+function stepSpread() {
+  for (let s = 0; s < SPREAD_STEPS_PER_FRAME && spreading; s++) {
+    if (spreadSp >= SPREAD_MAX || spreadD < SPREAD_MIN_STEP) {
+      spreading = false;
+      // hạ lại theo trọng lực sau khi kéo: đường sợi căng giữa các ghim sẽ hiện ra
+      startRelax(`đã kéo ${pinnedIndices().length} điểm ghim ra xa, khoảng cách ${spreadSp.toFixed(3)} m`);
+      return;
+    }
+    const cand = spreadSp + spreadD;
+    const res = trialRow(cand);
+    if (res) {
+      spreadSp = cand;
+      X = res.xs;
+      Y = res.ys;
+      PX = res.PX;
+      PY = res.PY;
+      spreadD = Math.min(spreadD * 1.2, 0.1);
+    } else {
+      spreadD /= 2;
+    }
+  }
   updateLinkControls();
 }
 
@@ -585,15 +690,16 @@ function draw() {
   ctx.arc(view.pivotX, view.pivotY, 4, 0, Math.PI * 2);
   ctx.fill();
 
-  energyEl.textContent = `U = ${potentialU().toFixed(3)} J   ·   ${
-    relaxing ? "đang cân bằng" : "cân bằng"
-  }`;
+  const state = spreading ? "đang kéo ghim" : relaxing ? "đang cân bằng" : "cân bằng";
+  energyEl.textContent = `U = ${potentialU().toFixed(3)} J   ·   ${state}`;
 }
 
 // ---- Vòng lặp chính ----
 
 function frame() {
-  if (relaxing) {
+  if (spreading) {
+    stepSpread();
+  } else if (relaxing) {
     let r = { change: 1, worst: 1 };
     for (let s = 0; s < RELAX_SWEEPS_PER_FRAME; s++) r = relaxSweep();
     relaxSweepsDone += RELAX_SWEEPS_PER_FRAME;
@@ -601,6 +707,10 @@ function frame() {
       relaxing = false;
       message = "đã cân bằng";
       updateLinkControls();
+      if (spreadPending) {
+        spreadPending = false;
+        beginSpread();
+      }
     } else if (relaxSweepsDone >= RELAX_MAX_SWEEPS) {
       relaxing = false;
       message = "dừng cân bằng (chưa hội tụ); bấm Cân bằng để tiếp tục";
@@ -838,6 +948,14 @@ window.addEventListener("keydown", (ev) => {
 });
 
 arrangeBtn.addEventListener("click", arrangePins);
+spreadBtn.addEventListener("click", () => {
+  if (relaxing || spreading) {
+    message = "chờ cân bằng xong rồi mới kéo ghim ra xa";
+    updateLinkControls();
+    return;
+  }
+  beginSpread();
+});
 relaxBtn.addEventListener("click", () => startRelax("đang cân bằng..."));
 lessBtn.addEventListener("click", removeNode);
 moreBtn.addEventListener("click", addNode);
