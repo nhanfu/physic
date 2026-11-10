@@ -8,7 +8,6 @@ const linkModeBtn = document.getElementById("linkmode");
 const linkHintEl = document.getElementById("link-hint");
 const netBtn = document.getElementById("net");
 const pinModeBtn = document.getElementById("pinmode");
-const clearPinsBtn = document.getElementById("clearpins");
 const netNEl = document.getElementById("net-n");
 const netEEl = document.getElementById("net-e");
 const netPEl = document.getElementById("net-p");
@@ -34,7 +33,10 @@ let linkMode = false;
 let pinMode = false;
 let linkSrc = -1;
 let message = "";
-let view = { pivotX: 0, pivotY: 0, ppm: 100, w: 0, h: 0 };
+// Khung nhìn: ppm = fitPpm · zoom (fitPpm tự co theo lưới); pivot = mốc gốc (0, 0) của lưới
+// trên màn hình, mặc định ở giữa-trên và lệch đi bởi panX/panY khi người dùng kéo nền.
+let view = { pivotX: 0, pivotY: 0, ppm: 100, fitPpm: 100, zoom: 1, panX: 0, panY: 0, w: 0, h: 0 };
+const ZOOM_MIN = 0.25, ZOOM_MAX = 8;
 
 // Tọa độ phần tử i của mảng; chỉ số -1 (điểm treo) luôn ở gốc (0, 0).
 const coord = (arr, i) => (i < 0 ? 0 : arr[i]);
@@ -359,9 +361,13 @@ function resize() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   view.w = w;
   view.h = h;
-  view.pivotX = w / 2;
-  view.pivotY = h * 0.18;
+  updatePivot();
   updateScale();
+}
+
+function updatePivot() {
+  view.pivotX = view.w / 2 + view.panX;
+  view.pivotY = view.h * 0.18 + view.panY;
 }
 
 function updateScale() {
@@ -371,7 +377,29 @@ function updateScale() {
     maxAbsX = Math.max(maxAbsX, Math.abs(HX[i]) + 0.5);
     maxY = Math.max(maxY, HY[i]);
   }
-  view.ppm = Math.min((view.w * 0.45) / maxAbsX, (view.h * 0.72) / (maxY + 1));
+  view.fitPpm = Math.min((view.w * 0.45) / maxAbsX, (view.h * 0.72) / (maxY + 1));
+  view.ppm = view.fitPpm * view.zoom;
+}
+
+// Zoom quanh điểm (cx, cy) trên màn hình: điểm dưới con trỏ giữ nguyên vị trí.
+function zoomAt(cx, cy, factor) {
+  const newZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, view.zoom * factor));
+  const f = newZoom / view.zoom;
+  if (f === 1) return;
+  // pivot mới = c − (c − pivot cũ)·f  →  panX/panY = pivot mới − mốc mặc định
+  view.panX = cx - (cx - view.pivotX) * f - view.w / 2;
+  view.panY = cy - (cy - view.pivotY) * f - view.h * 0.18;
+  view.zoom = newZoom;
+  updatePivot();
+  updateScale();
+}
+
+function resetView() {
+  view.zoom = 1;
+  view.panX = 0;
+  view.panY = 0;
+  updatePivot();
+  updateScale();
 }
 
 function sx(x) { return view.pivotX + view.ppm * x; }
@@ -518,7 +546,7 @@ function draw() {
   // quả nặng
   for (let i = 0; i < N; i++) {
     const p = { x: sx(X[i]), y: sy(Y[i]) };
-    const r = 10;
+    const r = Math.min(24, Math.max(5, 10 * view.zoom));
     const c = BOB_COLORS[i % BOB_COLORS.length];
     const grd = ctx.createRadialGradient(
       p.x - r * 0.35, p.y - r * 0.35, r * 0.1, p.x, p.y, r
@@ -700,13 +728,6 @@ function togglePinMode() {
   updateLinkControls();
 }
 
-function clearPins() {
-  PIN.fill(false);
-  message = "đã bỏ ghim tất cả node";
-  startRelax(null);
-  updateLinkControls();
-}
-
 // Đưa về lưới ban đầu rồi cân bằng lại.
 function reset() {
   X = HX.slice();
@@ -742,14 +763,58 @@ function localPoint(ev) {
   return { x: ev.clientX - r.left, y: ev.clientY - r.top };
 }
 
+// Kéo nền để di chuyển lưới (pan). Ở chế độ nối, mọi click dùng để nối rod.
+// Ở chế độ ghim, click vào node sẽ ghim/bỏ ghim, còn click nền thì kéo để di chuyển.
+let panning = null; // {id, x, y}: con trỏ đang kéo nền
+
 canvas.addEventListener("pointerdown", (ev) => {
   const p = localPoint(ev);
   if (linkMode) {
     handleLinkClick(p);
-  } else if (pinMode) {
-    const hit = pick(p);
-    if (hit >= 0) togglePinOf(hit);
+    return;
   }
+  const hit = pinMode ? pick(p) : -1;
+  if (hit >= 0) {
+    togglePinOf(hit);
+    return;
+  }
+  panning = { id: ev.pointerId, x: p.x, y: p.y };
+  canvas.setPointerCapture(ev.pointerId);
+  canvas.classList.add("dragging");
+});
+
+canvas.addEventListener("pointermove", (ev) => {
+  if (!panning || ev.pointerId !== panning.id) return;
+  const p = localPoint(ev);
+  view.panX += p.x - panning.x;
+  view.panY += p.y - panning.y;
+  panning.x = p.x;
+  panning.y = p.y;
+  updatePivot();
+});
+
+function endPan(ev) {
+  if (!panning || ev.pointerId !== panning.id) return;
+  panning = null;
+  canvas.classList.remove("dragging");
+}
+canvas.addEventListener("pointerup", endPan);
+canvas.addEventListener("pointercancel", endPan);
+
+// Cuộn chuột để zoom quanh con trỏ.
+canvas.addEventListener(
+  "wheel",
+  (ev) => {
+    ev.preventDefault();
+    const p = localPoint(ev);
+    zoomAt(p.x, p.y, Math.exp(-ev.deltaY * 0.0015));
+  },
+  { passive: false }
+);
+
+// Nhấp đúp vào nền (chế độ thường) để về khung nhìn mặc định.
+canvas.addEventListener("dblclick", () => {
+  if (!linkMode && !pinMode) resetView();
 });
 
 window.addEventListener("keydown", (ev) => {
@@ -773,7 +838,6 @@ lessBtn.addEventListener("click", removeNode);
 moreBtn.addEventListener("click", addNode);
 linkModeBtn.addEventListener("click", toggleLinkMode);
 pinModeBtn.addEventListener("click", togglePinMode);
-clearPinsBtn.addEventListener("click", clearPins);
 netBtn.addEventListener("click", () =>
   netStructure(parseInt(netNEl.value, 10), parseInt(netEEl.value, 10), parseInt(netPEl.value, 10))
 );

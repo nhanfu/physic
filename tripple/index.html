@@ -6,7 +6,8 @@
 <title>Triple Pendulum</title>
 <style>
   html, body { margin: 0; height: 100%; background: #0b0d10; overflow: hidden; }
-  canvas { display: block; touch-action: none; }
+  canvas { display: block; touch-action: none; cursor: grab; }
+  canvas.dragging { cursor: grabbing; }
   #hud {
     position: fixed; top: 14px; left: 16px;
     font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -43,7 +44,7 @@
 <body>
 <canvas id="c"></canvas>
 <div id="hud">
-  <b>R</b> reset &nbsp;·&nbsp; trạng thái luôn là cân bằng tĩnh dưới trọng lực<br>
+  <b>R</b> reset &nbsp;·&nbsp; cuộn chuột để zoom &nbsp;·&nbsp; kéo nền để di chuyển &nbsp;·&nbsp; đúp chuột để về khung mặc định<br>
   <span id="energy"></span>
   <div id="links-row">
     <b>node</b> &nbsp;
@@ -65,7 +66,6 @@
   <div id="link-row">
     <button id="linkmode">Chế độ nối</button>
     <button id="pinmode">Chế độ ghim</button>
-    <button id="clearpins">Bỏ ghim hết</button>
   </div>
   <div id="link-hint"></div>
 </div>
