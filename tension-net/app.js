@@ -123,7 +123,8 @@ function rebuild() {
   tourState = null;
   tourAnim = null;
   autoTourPending = true;
-  act = core.activeSet(net);
+  // node thừa (ngoài chu trình) bị loại trước khi cân bằng
+  act = core.cyclePrune(net, core.activeSet(net));
   solver = new core.Solver(net, act, { tol: 1e-7, maxSweeps: 50000 });
 }
 

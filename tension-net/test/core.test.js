@@ -189,4 +189,23 @@ test('node thừa: nhánh treo không nằm trên đường giữa các ghim →
   assert.strictEqual(used[2], 1);
 });
 
+test('loại node thừa trước cân bằng: chu trình và độ dài không đổi, nhánh thừa bị bỏ', () => {
+  // vòng 4 ghim: 0–1–2–3–0 (L=1 mỗi cạnh), có nhánh thừa 1–4–5 và 2–6 (không nằm trên đường nào)
+  const P = [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1], [1.5, 0, -0.5], [2, 0, -1], [1.5, 0, 1.5]];
+  const pins = [true, true, true, true, false, false, false];
+  const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [1, 4], [4, 5], [2, 6]];
+  const L = [1, 1, 1, 1, 1, 1, 1];
+  const net = core.createNet(P, pins, edges, L, 1000, 0);
+  const act0 = core.activeSet(net);
+  const act = core.cyclePrune(net, act0);
+  assert.strictEqual(act.alive[4], 0, 'node 4 phải bị loại');
+  assert.strictEqual(act.alive[5], 0, 'node 5 phải bị loại');
+  assert.strictEqual(act.alive[6], 0, 'node 6 phải bị loại');
+  const order = [0, 1, 2, 3];
+  const D0 = core.pinDistancesT(core.shortestTrees(net, act0, order), order);
+  const D1 = core.pinDistancesT(core.shortestTrees(net, act, order), order);
+  for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) assert.ok(Math.abs(D0[a][b] - D1[a][b]) < 1e-12);
+  assert.ok(Math.abs(core.farthestInsertionTour(D1).length - 4) < 1e-9);
+});
+
 console.log(`\n${passed} test(s) passed`);

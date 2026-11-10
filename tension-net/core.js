@@ -449,7 +449,35 @@
     return used;
   }
 
+  // Loại node thừa trước khi cân bằng. Chu trình và các node nằm trên đường ngắn nhất giữa
+  // các ghim liền kề chỉ phụ thuộc vào chiều dài nghỉ L, không phụ thuộc vị trí cân bằng,
+  // nên tính được trên đồ thị đầy đủ (act0). Các node khác bị bỏ khỏi cân bằng.
+  // Trả về {alive, edgeOn, nbE} mới, dùng thay cho activeSet.
+  function cyclePrune(net, act0) {
+    const pinIdx = [];
+    for (let i = 0; i < net.N; i++) if (net.pin[i] && act0.alive[i]) pinIdx.push(i);
+    if (pinIdx.length < 3) return act0;
+    const trees = shortestTrees(net, act0, pinIdx);
+    const D = pinDistancesT(trees, pinIdx);
+    const t = farthestInsertionTour(D);
+    const order = t.order.map((k) => pinIdx[k]);
+    const used = usedNodesT(net, trees, order);
+    const alive = new Uint8Array(net.N);
+    for (let i = 0; i < net.N; i++) alive[i] = act0.alive[i] && (net.pin[i] || used[i]) ? 1 : 0;
+    const edgeOn = new Uint8Array(net.edges.length);
+    const nbE = Array.from({ length: net.N }, () => []);
+    net.edges.forEach(([a, b], k) => {
+      if (alive[a] && alive[b]) {
+        edgeOn[k] = 1;
+        nbE[a].push([b, k]);
+        nbE[b].push([a, k]);
+      }
+    });
+    return { alive, edgeOn, nbE };
+  }
+
   const api = {
+    cyclePrune,
     shortestTrees, pinDistancesT, pathNodes, usedNodesT,
     createNet, activeSet, energy, sweep, Solver, diagnostics, buildSheet,
     dijkstra, pinDistances, farthestInsertionTour, usedNodes,
