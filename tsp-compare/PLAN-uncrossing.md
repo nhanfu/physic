@@ -292,3 +292,19 @@ Ghi chú: "Vòng ngoài + đồi trong" là hình dạng gần với mô tả v�
 - NN ở đây lấy điểm bắt đầu tốt nhất trong n điểm, nên thuận lợi hơn NN một điểm bắt đầu. Chưa đo NN một điểm bắt đầu.
 
 **Kết luận sơ bộ:** quy tắc địa hình thuần túy kém hơn NN và farthest insertion. Nó chỉ tốt hơn sau khi khử giao cắt, và vẫn kém. Nếu muốn giữ hướng này, nên dùng nó làm tour khởi đầu cho 2-opt/Or-opt, rồi đo lại.
+
+## Khung theo tia
+
+Khung = bao lồi ngoài + chuỗi chừa lại từ đỉnh cao nhất ra ngoài theo một tia; các điểm còn lại chèn rẻ nhất (lớp ngoài trước), rồi khử giao cắt. Mã: `tsp-compare/ray.js`. Thử 36 góc tia, giữ tour ngắn nhất.
+
+So với Held-Karp, n = 12–18 (30 bộ mỗi n), trước và sau 2-opt + Or-opt:
+- n = 12: bao lồi + chèn + 2-opt + Or-opt 0.11% (28/30); khung tia + 2-opt + Or-opt 0.11% (29/30)
+- n = 14: 0.06% (29/30); 0.00% (30/30)
+- n = 16: 0.10% (25/30); 0.08% (27/30)
+- n = 18: 0.38% (20/30); 0.20% (25/30)
+
+n = 40, 80 (8 bộ, chuẩn = min của hai thuật toán, nên có xu hướng ưu ái cả hai):
+- n = 40: 0.64% (5/8); 0.00% (8/8)
+- n = 80: 1.21% (2/8); 0.33% (6/8)
+
+Khung tia thô (chưa tối ưu cục bộ) đã giảm mạnh các biến thể đi vòng (từ 18–35% xuống dưới 0.6% ở n ≤ 18). Chưa có chuẩn độc lập ở n lớn.
