@@ -308,3 +308,23 @@ n = 40, 80 (8 bộ, chuẩn = min của hai thuật toán, nên có xu hướng 
 - n = 80: 1.21% (2/8); 0.33% (6/8)
 
 Khung tia thô (chưa tối ưu cục bộ) đã giảm mạnh các biến thể đi vòng (từ 18–35% xuống dưới 0.6% ở n ≤ 18). Chưa có chuẩn độc lập ở n lớn.
+
+## ILS và đo nhiều dạng dữ liệu
+
+Thuật toán: ILS (`tsp-compare/ils.js`): phép đổi kép rồi 2-opt và Or-opt, 150 vòng, giữ kết quả nếu tốt hơn. Chuẩn: tour ngắn nhất trong FI+LS, khung tia+LS, ILS(khung tia), ILS(FI), và 10 lần LS từ hoán vị ngẫu nhiên. Đây là chuẩn tương đối; hai lần ILS nằm trong chuẩn nên các con số ILS bị đánh giá thấp hơn thực tế. Mỗi dòng có 4 bộ.
+
+| Dạng | n | FI+LS | Khung tia+LS | ILS(khung tia) | ILS(FI) |
+|---|---|---|---|---|---|
+| Vòng ngoài + đồi trong | 40 | 3.12% | 2.66% | 0.00% | 0.00% |
+| Vòng ngoài + đồi trong | 80 | 9.64% | 1.51% | 0.00% | 0.00% |
+| Lưới có nhiễu | 40 | 2.07% | 1.05% | 0.03% | 0.00% |
+| Lưới có nhiễu | 80 | 2.72% | 2.09% | 0.06% | 0.20% |
+| Chuỗi cụm | 40 | 0.00% | 0.16% | 0.00% | 0.00% |
+| Chuỗi cụm | 80 | 0.34% | 0.56% | 0.02% | 0.00% |
+| Bước đi ngẫu nhiên | 40 | 0.56% | 1.45% | 0.00% | 0.00% |
+| Bước đi ngẫu nhiên | 80 | 3.61% | 1.97% | 0.21% | 0.12% |
+| Ngẫu nhiên đều | 40 | 2.43% | 0.84% | 0.00% | 0.00% |
+| Ngẫu nhiên đều | 80 | 2.11% | 3.14% | 0.11% | 0.00% |
+| Vòng tròn | 40, 80 | 0.00% | 0.00% | 0.00% | 0.00% |
+
+Số bộ đạt đúng chuẩn (trên 48): ILS(FI) 45, ILS(khung tia) 42. Chênh lệch giữa hai biến thể ILS nằm trong nhiễu, chưa kết luận được. Cần chuẩn độc lập để đo độ lệch thật ở n lớn.
