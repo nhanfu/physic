@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Minh họa TSP: khung tia + ILS</title>
+<style>
+  :root { --bg:#fbfaf7; --fg:#1d1d1f; --muted:#6b6b70; --line:#c9c6bd; --btn:#2b5ea7; --btn-fg:#fff; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg:#16161a; --fg:#ececf1; --muted:#9a9aa3; --line:#3a3a44; --btn:#5b8fd9; --btn-fg:#0b0b0e; }
+  }
+  :root[data-theme="dark"] { --bg:#16161a; --fg:#ececf1; --muted:#9a9aa3; --line:#3a3a44; --btn:#5b8fd9; --btn-fg:#0b0b0e; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family: system-ui, sans-serif; padding:16px; }
+  h1 { font-size:18px; margin:0 0 12px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+  select, button { font:inherit; padding:8px 12px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+  button.primary { background:var(--btn); color:var(--btn-fg); border-color:var(--btn); cursor:pointer; }
+  button:disabled { opacity:.45; cursor:default; }
+  #title { font-weight:600; }
+  #text { color:var(--muted); min-height:2.6em; margin:6px 0 10px; }
+  canvas { width:100%; max-width:640px; aspect-ratio:1/1; border:1px solid var(--line); border-radius:10px; background:var(--bg); display:block; }
+  .legend { font-size:13px; color:var(--muted); margin-top:8px; display:flex; flex-wrap:wrap; gap:12px; }
+  .sw { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; vertical-align:middle; }
+  #stats { font-size:13px; color:var(--muted); margin-top:6px; }
+  @media (max-width: 480px) { body { padding:12px; } }
+</style>
+</head>
+<body>
+<h1>Minh họa: khung tia → vành đai → ngọn đồi → ILS</h1>
+<div class="row">
+  <select id="case"></select>
+  <button id="start" class="primary">Bắt đầu</button>
+  <button id="next" disabled>Bước tiếp</button>
+  <button id="reset">Đặt lại</button>
+</div>
+<div id="title">Chọn test case rồi bấm “Bắt đầu”.</div>
+<div id="text"></div>
+<canvas id="cv" width="640" height="640"></canvas>
+<div class="legend">
+  <span><span class="sw" style="background:#c0392b"></span>lớp 1 (ngoài)</span>
+  <span><span class="sw" style="background:#e67e22"></span>lớp 2</span>
+  <span><span class="sw" style="background:#27ae60"></span>lớp 3</span>
+  <span><span class="sw" style="background:#2980b9"></span>lớp 4+</span>
+  <span><span class="sw" style="background:#8e44ad"></span>ngọn đồi</span>
+  <span><span class="sw" style="background:#111"></span>đỉnh cao nhất (★)</span>
+  <span><span class="sw" style="background:#f1c40f"></span>điểm chừa lại (■)</span>
+  <span><span class="sw" style="background:#e67e22"></span>cạnh vành đai (mạng)</span>
+  <span><span class="sw" style="background:#c9c6bd"></span>cạnh thường (mạng)</span>
+  <span><span class="sw" style="background:#fff;border:2px solid #c0392b"></span>đồi giả (vòng đỏ)</span>
+</div>
+<div id="stats"></div>
+
+<script src="../core.js"></script>
+<script src="../uncross.js"></script>
+<script src="../localsearch.js"></script>
+<script src="cases.js"></script>
+<script src="steps.js"></script>
+<script src="netpipeline.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
